@@ -1,0 +1,5 @@
+{
+  "kind": "llm-policy",
+  "note": "Example cost-aware routing policy (placeholder content for the gsp demo).",
+  "policy_ir": ["policy", "cheapest-with-tools"]
+}
