@@ -1,0 +1,14 @@
+{
+  "registry": {"scope": "jmlago"},
+  "packages": [
+    {"name": "web-researcher", "dir": "packages/web-researcher", "kind": "body",
+     "description": "Web research agent body"},
+    {"name": "cost-router", "dir": "packages/cost-router", "kind": "policy",
+     "description": "Cost-aware LLM routing policy"},
+    {"name": "task-board", "dir": "packages/task-board", "kind": "handler",
+     "note": "object handler; depends on kv-store (not inferable from a slot)",
+     "deps": ["jmlago/kv-store@^0.3"]},
+    {"name": "research-swarm", "dir": "packages/research-swarm", "kind": "swarm",
+     "description": "A composable research swarm — deps are the refs in its IR"}
+  ]
+}

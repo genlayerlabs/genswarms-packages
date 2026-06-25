@@ -1,0 +1,24 @@
+{
+  "v": 1,
+  "kind": "swarm.state",
+  "name": "research",
+  "phase": "desired",
+  "agents": [
+    {
+      "name": "coder",
+      "body": {"ref": "swarmidx:jmlago/coder@0.4.0", "kind": "data", "digest": "sha256:3a8f1c"},
+      "model": {"ref": "openrouter:anthropic/claude-sonnet-4", "attested": true},
+      "backend": {"ref": "bwrap"}
+    },
+    {
+      "name": "researcher",
+      "body": {"ref": "swarmidx:jmlago/web-researcher@1.2.3", "kind": "data", "digest": "sha256:aaaa"},
+      "model": {"policy": {"ref": "swarmidx:jmlago/cost-router@1.0.0", "kind": "data", "digest": "sha256:11bc90"}},
+      "backend": {"ref": "bwrap"}
+    }
+  ],
+  "objects": [
+    {"name": "board", "handler": {"ref": "swarmidx:jmlago/task-board@1.0.0", "kind": "code", "digest": "sha256:7b11ce"}}
+  ],
+  "topology": [["researcher", "board"], ["coder", "board"]]
+}

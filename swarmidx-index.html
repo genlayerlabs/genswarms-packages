@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>swarmidx — the GenSwarms package index</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F4EF; --ink:#15120E; --muted:#6E685D; --faint:#9A9489;
+    --line:#E4DFD4; --card:#FCFBF8; --card-hover:#FFFFFF;
+    --blue:#2640FF; --violet:#6B4BE0; --terra:#C2542E; --teal:#0C7C6B;
+    --term:#16130F; --term-fg:#EDE8DD; --term-dim:#7C766A;
+    --ok:#1E9E5A;
+    --shadow:0 1px 0 rgba(20,17,14,.04), 0 12px 32px -18px rgba(20,17,14,.35);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:'Archivo',sans-serif; font-size:16px; line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    background-image:radial-gradient(rgba(20,17,14,.022) 1px, transparent 1px);
+    background-size:4px 4px;
+  }
+  .mono{font-family:'JetBrains Mono',monospace}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--blue);color:#fff}
+
+  .wrap{max-width:1120px;margin:0 auto;padding:0 32px}
+
+  /* ---------- nav ---------- */
+  nav{position:sticky;top:0;z-index:50;background:rgba(246,244,239,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  .nav-in{display:flex;align-items:center;gap:28px;height:64px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:800;letter-spacing:-.02em;font-size:18px}
+  .brand .mark{width:26px;height:26px;flex:none}
+  .brand small{font-weight:500;color:var(--muted);font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin-left:2px}
+  .nav-links{display:flex;gap:22px;margin-left:auto;align-items:center}
+  .nav-links a{font-size:14px;color:var(--muted);font-weight:500;transition:color .15s}
+  .nav-links a:hover{color:var(--ink)}
+  .pill{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:4px 10px;display:inline-flex;gap:7px;align-items:center}
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+  .btn-gh{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:var(--bg);font-size:13px;font-weight:600;padding:8px 14px;border-radius:8px;transition:transform .12s,opacity .15s}
+  .btn-gh:hover{transform:translateY(-1px);opacity:.92}
+
+  /* ---------- hero ---------- */
+  header.hero{padding:74px 0 40px}
+  .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:13px;color:var(--muted);font-weight:600;margin-bottom:22px}
+  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--blue)}
+  h1{font-size:clamp(40px,6.4vw,76px);line-height:.96;letter-spacing:-.035em;font-weight:900;max-width:14ch}
+  h1 em{font-style:normal;color:var(--blue);position:relative;white-space:nowrap}
+  h1 em::after{content:"";position:absolute;left:0;right:-2px;bottom:.04em;height:.13em;background:var(--blue);opacity:.9;border-radius:2px}
+  .sub{margin-top:24px;font-size:18px;color:var(--muted);max-width:54ch;line-height:1.55}
+
+  .resolve{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:30px;font-size:13.5px}
+  .resolve .ref{background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px 13px;color:var(--ink)}
+  .resolve .arrow{color:var(--faint);font-weight:700}
+  .resolve .dig{color:var(--muted)}
+  .resolve .vf{display:inline-flex;align-items:center;gap:6px;color:var(--ok);font-weight:600;font-family:'Archivo'}
+  .resolve .vf svg{width:15px;height:15px}
+
+  /* ---------- search ---------- */
+  .search-row{margin-top:48px;display:flex;flex-direction:column;gap:16px}
+  .search{display:flex;align-items:center;gap:12px;background:#fff;border:1.5px solid var(--ink);border-radius:12px;padding:15px 18px;box-shadow:var(--shadow);transition:border-color .15s}
+  .search:focus-within{border-color:var(--blue)}
+  .search svg{width:20px;height:20px;color:var(--muted);flex:none}
+  .search input{flex:1;border:none;outline:none;background:transparent;font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--ink)}
+  .search input::placeholder{color:var(--faint)}
+  .search kbd{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:3px 7px}
+
+  .chips{display:flex;gap:9px;flex-wrap:wrap}
+  .chip{font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:500;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:999px;padding:7px 14px;cursor:pointer;transition:all .14s;display:inline-flex;align-items:center;gap:7px}
+  .chip:hover{border-color:var(--ink);color:var(--ink)}
+  .chip[data-active="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .chip .kdot{width:7px;height:7px;border-radius:50%}
+
+  /* ---------- grid ---------- */
+  .meta-line{display:flex;justify-content:space-between;align-items:baseline;margin:42px 0 16px;color:var(--muted);font-size:13px}
+  .meta-line .mono{font-size:12px;color:var(--faint)}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;padding-bottom:60px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 22px 18px;cursor:pointer;transition:transform .16s,box-shadow .16s,border-color .16s;position:relative;opacity:0;transform:translateY(10px);animation:rise .5s forwards}
+  @keyframes rise{to{opacity:1;transform:none}}
+  .card:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:#D5CFC2;background:var(--card-hover)}
+  .card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px}
+  .kind{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:4px 9px;border-radius:6px}
+  .kind.body{color:var(--blue);background:rgba(38,64,255,.09)}
+  .kind.policy{color:var(--violet);background:rgba(107,75,224,.10)}
+  .kind.handler{color:var(--terra);background:rgba(194,84,46,.10)}
+  .kind.swarm{color:var(--bg);background:var(--ink)}
+  .kdot.body{background:var(--blue)}.kdot.policy{background:var(--violet)}.kdot.handler{background:var(--terra)}.kdot.swarm{background:var(--ink)}
+  .ver{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--muted)}
+  .card h3{font-size:20px;font-weight:800;letter-spacing:-.02em;margin-bottom:3px}
+  .card h3 .scope{color:var(--faint);font-weight:600}
+  .card .desc{color:var(--muted);font-size:14px;line-height:1.5;min-height:42px}
+  .card-foot{display:flex;align-items:center;gap:14px;margin-top:15px;padding-top:13px;border-top:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--faint)}
+  .card-foot .dig{color:var(--muted)}
+  .card-foot .vchk{margin-left:auto;display:inline-flex;align-items:center;gap:5px;color:var(--ok)}
+  .card-foot .vchk svg{width:13px;height:13px}
+
+  /* ---------- detail ---------- */
+  #detail{display:none;padding:34px 0 80px}
+  .back{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;margin-bottom:26px;transition:color .15s}
+  .back:hover{color:var(--ink)}
+  .d-head{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+  .d-title h2{font-size:clamp(30px,5vw,46px);font-weight:900;letter-spacing:-.03em;line-height:1}
+  .d-title h2 .scope{color:var(--faint);font-weight:700}
+  .d-sub{margin-top:12px;color:var(--muted);font-size:16px;max-width:60ch}
+  .d-grid{display:grid;grid-template-columns:1fr 300px;gap:40px;margin-top:36px}
+  @media(max-width:840px){.d-grid{grid-template-columns:1fr}}
+
+  .term{background:var(--term);border-radius:12px;padding:18px 18px 16px;color:var(--term-fg);font-family:'JetBrains Mono',monospace;font-size:13.5px;position:relative;overflow:hidden}
+  .term .tlabel{color:var(--term-dim);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:11px;display:flex;justify-content:space-between;align-items:center}
+  .term .line{display:flex;gap:9px;align-items:baseline;white-space:pre-wrap;word-break:break-all}
+  .term .pmt{color:var(--terra)}
+  .term .cmd{color:var(--term-fg)}
+  .term .flag{color:#7FA9FF}
+  .copy{background:rgba(255,255,255,.08);color:var(--term-fg);border:none;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;padding:5px 11px;border-radius:6px;cursor:pointer;transition:background .15s;letter-spacing:.04em}
+  .copy:hover{background:rgba(255,255,255,.16)}
+
+  .sect{margin-top:30px}
+  .sect-h{font-size:13px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin-bottom:13px}
+
+  .verify{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .vrow{display:flex;justify-content:space-between;gap:16px;padding:13px 17px;border-bottom:1px solid var(--line);font-size:13.5px;align-items:center}
+  .vrow:last-child{border-bottom:none}
+  .vrow .k{color:var(--muted);font-weight:500}
+  .vrow .v{font-family:'JetBrains Mono',monospace;color:var(--ink);text-align:right;word-break:break-all}
+  .vrow .v a{color:var(--blue)}
+  .badge-ok{display:inline-flex;align-items:center;gap:6px;color:var(--ok);font-weight:600;font-family:'Archivo';font-size:13.5px}
+  .badge-ok svg{width:15px;height:15px}
+
+  .readme{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px 26px;font-size:15px;line-height:1.65;color:#2C2820}
+  .readme h4{font-size:18px;font-weight:800;letter-spacing:-.01em;margin:18px 0 8px}
+  .readme h4:first-child{margin-top:0}
+  .readme p{margin-bottom:12px;color:var(--muted)}
+  .readme code{font-family:'JetBrains Mono',monospace;font-size:13px;background:rgba(20,17,14,.05);padding:2px 6px;border-radius:5px;color:var(--ink)}
+  .readme ul{margin:0 0 12px 18px;color:var(--muted)}
+  .readme li{margin-bottom:5px}
+
+  /* sidebar */
+  .side .box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  .side .srow{display:flex;justify-content:space-between;align-items:center;font-size:13.5px;padding:7px 0}
+  .side .srow .k{color:var(--muted)}
+  .side .srow .v{font-family:'JetBrains Mono',monospace;color:var(--ink)}
+  .dep{display:flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;padding:8px 10px;border-radius:7px;background:rgba(20,17,14,.025);margin-bottom:7px;color:var(--ink)}
+  .dep:last-child{margin-bottom:0}
+  .dep .kdot{width:6px;height:6px;border-radius:50%;flex:none}
+  .none{color:var(--faint);font-size:13px;font-style:italic}
+
+  .vhist{display:flex;flex-direction:column}
+  .vh{display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .vh:last-child{border-bottom:none}
+  .vh .vn{font-family:'JetBrains Mono',monospace;font-weight:700;color:var(--ink);width:62px}
+  .vh .vd{font-family:'JetBrains Mono',monospace;color:var(--faint);flex:1;word-break:break-all}
+  .vh .vt{color:var(--muted);font-size:12px}
+  .vh.cur .vn{color:var(--blue)}
+
+  footer{border-top:1px solid var(--line);padding:26px 0;color:var(--faint);font-size:12.5px}
+  .foot-in{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
+  .foot-in .mono{font-size:11.5px}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a href="#" class="brand" onclick="showList();return false">
+      <svg class="mark" viewBox="0 0 32 32" fill="none">
+        <circle cx="16" cy="6" r="3.2" fill="var(--ink)"/>
+        <circle cx="6" cy="22" r="3.2" fill="var(--ink)"/>
+        <circle cx="26" cy="22" r="3.2" fill="var(--ink)"/>
+        <circle cx="16" cy="18" r="2.4" fill="var(--blue)"/>
+        <path d="M16 9v6M14 16l-6 4M18 16l6 4" stroke="var(--ink)" stroke-width="1.6"/>
+      </svg>
+      swarmidx <small>gsp registry</small>
+    </a>
+    <div class="nav-links">
+      <a href="#" onclick="showList();return false">Browse</a>
+      <a href="#">Docs</a>
+      <span class="pill"><span class="dot"></span>v0.1 · MIT</span>
+      <a href="#" class="btn-gh">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        Sign in
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ LIST VIEW ============ -->
+<main id="list">
+  <header class="hero">
+    <div class="wrap">
+      <span class="eyebrow"><span class="dot"></span>Content-addressed · Transparency-logged · Agent-native</span>
+      <h1>Every swarm, pinned&nbsp;and <em>provable</em>.</h1>
+      <p class="sub">A notary for GenSwarms packages — not a blob host. Names map to content digests, every release is signed into an append-only log, and the bytes live in your git. Resolve, compose and hot-swap with one CLI.</p>
+
+      <div class="resolve mono">
+        <span class="ref">swarmidx:jmlago/web-researcher@1.2.3</span>
+        <span class="arrow">→</span>
+        <span class="dig">sha256:9f2c…e1</span>
+        <span class="vf"><svg viewBox="0 0 16 16" fill="none"><path d="M2 8.5l3.5 3.5L14 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>verified</span>
+      </div>
+
+      <div class="search-row">
+        <label class="search">
+          <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="2"/><path d="M14 14l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input id="q" type="text" placeholder="search packages, scopes, digests…" autocomplete="off">
+          <kbd>/</kbd>
+        </label>
+        <div class="chips" id="chips">
+          <span class="chip" data-k="all" data-active="true">all</span>
+          <span class="chip" data-k="body"><span class="kdot body"></span>body</span>
+          <span class="chip" data-k="policy"><span class="kdot policy"></span>policy</span>
+          <span class="chip" data-k="handler"><span class="kdot handler"></span>handler</span>
+          <span class="chip" data-k="swarm"><span class="kdot swarm"></span>swarm</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="meta-line">
+      <span id="count">8 packages</span>
+      <span class="mono">scope: jmlago · published via git tag</span>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
+</main>
+
+<!-- ============ DETAIL VIEW ============ -->
+<section id="detail"><div class="wrap"></div></section>
+
+<footer>
+  <div class="wrap foot-in">
+    <span>swarmidx · the GenSwarms package index</span>
+    <span class="mono">© 2026 GenLayer Labs · MIT · notary + transparency log</span>
+  </div>
+</footer>
+
+<script>
+const CHK = '<svg viewBox="0 0 16 16" fill="none"><path d="M2 8.5l3.5 3.5L14 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+const PKGS = [
+  { scope:'jmlago', name:'web-researcher', kind:'body', ver:'1.2.3', desc:'Web research agent — searches, fetches, synthesizes and cites sources.',
+    digest:'sha256:9f2c4a…e1', downloads:'4.2k', updated:'3 days ago', source:'github://jmlago/agents@v1.2.3', dir:'packages/web-researcher',
+    deps:[{ref:'jmlago/cost-router@^1.0',kind:'policy'}],
+    readme:[['What it is','A reusable agent <code>body</code> (data, not code): persona, tool affordances and the research loop. Plugs into any agent <code>body</code> slot of a swarm IR.'],
+            ['Hot-swappable','Because a body is <code>kind: data</code>, bumping it live is a state-swap, not a code reload — <code>migration: state_migrate</code> preserves accumulated context across the swap.']],
+    vhist:[['1.2.3','sha256:9f2c4a…e1','3 days ago'],['1.2.2','sha256:b71044…9c','2 weeks ago'],['1.2.0','sha256:e0aa3f…12','1 month ago']] },
+
+  { scope:'jmlago', name:'coder', kind:'body', ver:'0.4.0', desc:'Implementation agent — reads the board, writes patches, runs tests.',
+    digest:'sha256:3a8f1c…77', downloads:'2.9k', updated:'5 days ago', source:'github://jmlago/agents@v0.4.0', dir:'packages/coder',
+    deps:[{ref:'jmlago/cost-router@^1.0',kind:'policy'}],
+    readme:[['What it is','A coding agent <code>body</code>. Designed to be scaled as a group — <code>scale_agent_group</code> spins up N coders against a shared task board.']],
+    vhist:[['0.4.0','sha256:3a8f1c…77','5 days ago'],['0.3.2','sha256:cc1290…04','3 weeks ago']] },
+
+  { scope:'jmlago', name:'strict-reviewer', kind:'body', ver:'2.0.1', desc:'Adversarial reviewer — rejects until the work clears a hard bar.',
+    digest:'sha256:c50e22…aa', downloads:'1.8k', updated:'1 week ago', source:'github://jmlago/agents@v2.0.1', dir:'packages/strict-reviewer',
+    deps:[],
+    readme:[['What it is','A reviewer <code>body</code> that holds a strict acceptance bar. Pairs well with a <code>fact-checker</code> downstream.']],
+    vhist:[['2.0.1','sha256:c50e22…aa','1 week ago'],['2.0.0','sha256:f7aa18…b3','2 weeks ago'],['1.4.0','sha256:0091de…71','2 months ago']] },
+
+  { scope:'jmlago', name:'fact-checker', kind:'body', ver:'0.2.0', desc:'Cheap verification pass — flags unsupported claims before output.',
+    digest:'sha256:e09a55…30', downloads:'940', updated:'4 days ago', source:'github://jmlago/agents@v0.2.0', dir:'packages/fact-checker',
+    deps:[],
+    readme:[['What it is','A lightweight checker <code>body</code> routed to a small model. Added to live swarms via <code>add_agent</code> + <code>add_topology_edges</code>.']],
+    vhist:[['0.2.0','sha256:e09a55…30','4 days ago'],['0.1.0','sha256:aa7700…12','3 weeks ago']] },
+
+  { scope:'jmlago', name:'cost-router', kind:'policy', ver:'1.0.0', desc:'Cost-aware LLM routing, expressed as an llm-policy IR.',
+    digest:'sha256:11bc90…44', downloads:'6.1k', updated:'2 weeks ago', source:'github://jmlago/policies@v1.0.0', dir:'packages/cost-router',
+    deps:[],
+    readme:[['What it is','An <code>llm-policy</code> IR that sits in an agent\'s <code>model</code> slot and routes calls across providers by cost and capability.'],
+            ['Composable','Referenced by <code>coder</code> and <code>web-researcher</code>. Slot-typed: the resolver rejects dropping a <code>policy</code> into anything but a <code>model</code> slot.']],
+    vhist:[['1.0.0','sha256:11bc90…44','2 weeks ago'],['0.9.0','sha256:7711ab…02','1 month ago']] },
+
+  { scope:'jmlago', name:'task-board', kind:'handler', ver:'1.0.0', desc:'Shared task board object — deterministic, bounded work queue.',
+    digest:'sha256:7b11ce…08', downloads:'3.4k', updated:'1 week ago', source:'github://jmlago/objects@v1.0.0', dir:'packages/task-board',
+    deps:[{ref:'jmlago/kv-store@^0.3',kind:'handler'}],
+    readme:[['What it is','An object <code>handler</code> — this one is <code>kind: code</code>. It backs the <code>task_board</code> node that agents read from and write to.'],
+            ['Live bumps are the hard case','As code, a live bump is a real hot code load, not a data swap. Default policy is <code>restart</code> with <code>drain</code> on in-flight work.']],
+    vhist:[['1.0.0','sha256:7b11ce…08','1 week ago'],['0.8.0','sha256:dd0021…aa','1 month ago']] },
+
+  { scope:'jmlago', name:'kv-store', kind:'handler', ver:'0.3.1', desc:'Minimal key-value object handler — persistence for other objects.',
+    digest:'sha256:55aa12…6b', downloads:'2.1k', updated:'3 weeks ago', source:'github://jmlago/objects@v0.3.1', dir:'packages/kv-store',
+    deps:[],
+    readme:[['What it is','A small <code>handler</code> dependency used by <code>task-board</code>. Demonstrates object → object deps declared in <code>swarmidx.json</code>.']],
+    vhist:[['0.3.1','sha256:55aa12…6b','3 weeks ago'],['0.3.0','sha256:90ff43…1d','2 months ago']] },
+
+  { scope:'jmlago', name:'research-swarm', kind:'swarm', ver:'1.1.0', desc:'A composable research swarm — researcher, coders, reviewer, board.',
+    digest:'sha256:af20c1…d9', downloads:'1.2k', updated:'2 days ago', source:'github://jmlago/swarms@v1.1.0', dir:'packages/research-swarm',
+    deps:[{ref:'jmlago/web-researcher@1.2.3',kind:'body'},{ref:'jmlago/coder@0.4.0',kind:'body'},{ref:'jmlago/strict-reviewer@2.0.1',kind:'body'},{ref:'jmlago/cost-router@1.0.0',kind:'policy'},{ref:'jmlago/task-board@1.0.0',kind:'handler'}],
+    readme:[['What it is','A fully-resolved swarm IR published as a unit. A <code>kind: swarm</code> package needs no <code>deps</code> section — its dependencies <em>are</em> the refs in its IR, walked by the resolver.'],
+            ['Merkle composition','Its digest commits transitively to every dependency digest. If any package below changes, this swarm\'s digest changes too — reproducibility end to end.']],
+    vhist:[['1.1.0','sha256:af20c1…d9','2 days ago'],['1.0.0','sha256:2c33ee…7f','3 weeks ago']] }
+];
+
+const KIND_LABEL = {body:'body',policy:'policy',handler:'handler',swarm:'swarm'};
+let filter = 'all', query = '';
+
+/* ---------- list rendering ---------- */
+function visible(){
+  return PKGS.filter(p=>{
+    if(filter!=='all' && p.kind!==filter) return false;
+    if(query){
+      const h=(p.scope+'/'+p.name+' '+p.desc+' '+p.kind+' '+p.digest).toLowerCase();
+      if(!h.includes(query.toLowerCase())) return false;
+    }
+    return true;
+  });
+}
+function renderGrid(){
+  const v=visible(), g=document.getElementById('grid');
+  document.getElementById('count').textContent = v.length+(v.length===1?' package':' packages');
+  g.innerHTML = v.map((p,i)=>`
+    <div class="card" style="animation-delay:${i*45}ms" onclick="openPkg('${p.name}')">
+      <div class="card-top">
+        <span class="kind ${p.kind}">${KIND_LABEL[p.kind]}</span>
+        <span class="ver">@${p.ver}</span>
+      </div>
+      <h3><span class="scope">${p.scope}/</span>${p.name}</h3>
+      <p class="desc">${p.desc}</p>
+      <div class="card-foot">
+        <span class="dig">${p.digest}</span>
+        <span class="vchk">${CHK}attested</span>
+      </div>
+    </div>`).join('');
+}
+document.getElementById('q').addEventListener('input',e=>{query=e.target.value;renderGrid();});
+document.getElementById('chips').addEventListener('click',e=>{
+  const c=e.target.closest('.chip'); if(!c) return;
+  filter=c.dataset.k;
+  document.querySelectorAll('.chip').forEach(x=>x.dataset.active=(x===c));
+  renderGrid();
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='/' && document.activeElement.tagName!=='INPUT'){e.preventDefault();document.getElementById('q').focus();}
+  if(e.key==='Escape'){showList();}
+});
+
+/* ---------- detail rendering ---------- */
+function slotFor(kind){return kind==='handler'?'object:'+'board':kind==='swarm'?'swarm':'agent:'+'node';}
+function addCmd(p){
+  if(p.kind==='swarm') return `gsp materialize ${p.scope}/${p.name}@${p.ver} <span class="flag">--out</span> seed.json`;
+  if(p.kind==='handler') return `gsp add ${p.scope}/${p.name}@${p.ver} <span class="flag">--as</span> object:board <span class="flag">--on-inflight</span> drain`;
+  if(p.kind==='policy') return `gsp add ${p.scope}/${p.name}@${p.ver} <span class="flag">--as</span> model:coder.model`;
+  return `gsp add ${p.scope}/${p.name}@${p.ver} <span class="flag">--as</span> agent:${p.name} <span class="flag">--migration</span> state_migrate`;
+}
+function openPkg(name){
+  const p=PKGS.find(x=>x.name===name); if(!p) return;
+  const depsHtml = p.deps.length ? p.deps.map(d=>`<div class="dep"><span class="kdot ${d.kind}"></span>${d.ref}</div>`).join('')
+    : (p.kind==='swarm' ? '<span class="none">resolved from IR refs — no deps section</span>' : '<span class="none">no declared dependencies</span>');
+
+  const html = `
+    <span class="back" onclick="showList()">← all packages</span>
+    <div class="d-head">
+      <div class="d-title">
+        <span class="kind ${p.kind}" style="vertical-align:middle">${KIND_LABEL[p.kind]}</span>
+        <h2 style="display:inline-block;margin-left:10px"><span class="scope">${p.scope}/</span>${p.name}</h2>
+        <p class="d-sub">${p.desc}</p>
+      </div>
+    </div>
+
+    <div class="d-grid">
+      <div class="d-main">
+        <div class="term">
+          <div class="tlabel"><span>${p.kind==='swarm'?'materialize':'install · gsp'}</span><button class="copy" onclick="copyTxt(this,'${addCmd(p).replace(/<[^>]+>/g,'')}')">COPY</button></div>
+          <div class="line"><span class="pmt">$</span><span class="cmd">${addCmd(p)}</span></div>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h">Verification</div>
+          <div class="verify">
+            <div class="vrow"><span class="k">Status</span><span class="badge-ok">${CHK} attested · in transparency log</span></div>
+            <div class="vrow"><span class="k">Digest (dirhash)</span><span class="v">${p.digest}</span></div>
+            <div class="vrow"><span class="k">Ref</span><span class="v">swarmidx:${p.scope}/${p.name}@${p.ver}</span></div>
+            <div class="vrow"><span class="k">Source</span><span class="v"><a href="#">${p.source}</a></span></div>
+            <div class="vrow"><span class="k">Log entry</span><span class="v">seq 1184 · signed</span></div>
+          </div>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h">Readme</div>
+          <div class="readme">
+            ${p.readme.map(([h,b])=>`<h4>${h}</h4><p>${b}</p>`).join('')}
+          </div>
+        </div>
+
+        <div class="sect">
+          <div class="sect-h">Versions</div>
+          <div class="vhist">
+            ${p.vhist.map((v,i)=>`<div class="vh${i===0?' cur':''}"><span class="vn">@${v[0]}</span><span class="vd">${v[1]}</span><span class="vt">${v[2]}</span></div>`).join('')}
+          </div>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="box">
+          <div class="srow"><span class="k">Kind</span><span class="v">${p.kind}</span></div>
+          <div class="srow"><span class="k">Latest</span><span class="v">@${p.ver}</span></div>
+          <div class="srow"><span class="k">License</span><span class="v">MIT</span></div>
+          <div class="srow"><span class="k">Owner</span><span class="v">${p.scope}</span></div>
+          <div class="srow"><span class="k">Installs</span><span class="v">${p.downloads}</span></div>
+          <div class="srow"><span class="k">Updated</span><span class="v" style="font-family:Archivo;color:var(--muted)">${p.updated}</span></div>
+        </div>
+        <div class="box">
+          <div class="sect-h" style="margin-bottom:11px">Dependencies</div>
+          ${depsHtml}
+        </div>
+        <div class="box">
+          <div class="sect-h" style="margin-bottom:11px">swarmidx.json</div>
+          <div class="term" style="font-size:12px;padding:14px;line-height:1.7">
+<span style="color:var(--term-dim)">{ "packages": [{</span>
+  <span style="color:var(--term-dim)">"name":</span> <span style="color:#7FA9FF">"${p.name}"</span><span style="color:var(--term-dim)">,</span>
+  <span style="color:var(--term-dim)">"dir":</span>  <span style="color:#7FA9FF">"packages/${p.name}"</span><span style="color:var(--term-dim)">,</span>
+  <span style="color:var(--term-dim)">"kind":</span> <span style="color:#7FA9FF">"${p.kind}"</span>
+<span style="color:var(--term-dim)">}] }</span>
+          </div>
+        </div>
+      </aside>
+    </div>`;
+  document.querySelector('#detail .wrap').innerHTML = html;
+  document.getElementById('list').style.display='none';
+  document.getElementById('detail').style.display='block';
+  window.scrollTo(0,0);
+}
+function showList(){
+  document.getElementById('detail').style.display='none';
+  document.getElementById('list').style.display='block';
+}
+function copyTxt(btn,txt){
+  const t=txt.replace(/\s+/g,' ').trim();
+  navigator.clipboard?.writeText(t).then(()=>{const o=btn.textContent;btn.textContent='COPIED';setTimeout(()=>btn.textContent=o,1200);}).catch(()=>{});
+}
+
+renderGrid();
+</script>
+</body>
+</html>

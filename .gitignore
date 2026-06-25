@@ -1,0 +1,7 @@
+# Built CLI binary
+/cli/gsp
+cli/gsp
+
+# Go build/test artifacts
+*.test
+*.out

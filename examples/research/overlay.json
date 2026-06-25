@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "kind": "swarm.overlay",
+  "swarm": "research",
+  "apply": "incremental",
+  "events": [
+    {"seq": 1, "op": "add_agent", "payload": {
+      "name": "reviewer",
+      "body": {"ref": "swarmidx:jmlago/strict-reviewer@2.0.1", "kind": "data", "digest": "sha256:c50e22"},
+      "model": {"ref": "openrouter:anthropic/claude-sonnet-4", "attested": true},
+      "backend": {"ref": "bwrap"}
+    }},
+    {"seq": 2, "op": "add_topology_edges", "payload": {"edges": [["reviewer", "board"]]}},
+    {"seq": 3, "op": "scale_agent_group", "payload": {"base_name": "coder", "target_count": 3, "on_inflight": "drain"}},
+    {"seq": 4, "op": "bump_package", "payload": {"target": "researcher", "field": "body", "from": "sha256:aaaa", "to": "sha256:bbbb", "migration": "state_migrate"}}
+  ]
+}
