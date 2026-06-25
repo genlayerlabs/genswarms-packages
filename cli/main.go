@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/genlayerlabs/genswarms-packages/cli/internal/client"
 	"github.com/genlayerlabs/genswarms-packages/cli/internal/dirhash"
@@ -23,6 +24,11 @@ offline authoring plane (deterministic, no network):
   gsp materialize <seed> [overlay…]   fold overlays onto a seed → materialized swarm.state
   gsp verify <ir.json>                parse + validate a swarm.state or swarm.overlay
   gsp manifest <swarmidx.json>        parse + validate a package manifest
+
+authoring (emit a one-event swarm.overlay to stdout or -o file):
+  gsp add <pkgref> --as agent:NAME --model REF --backend REF [--swarm S]   add_agent
+  gsp add <pkgref> --as object:NAME [--swarm S]                            add_object
+  gsp bump <target> --field F --from DIGEST --to DIGEST [--migration P]    bump_package
 
 notary client (talks to swarmidx; --endpoint / $SWARMIDX_ENDPOINT, --token / $SWARMIDX_TOKEN):
   gsp publish <swarmidx.json> --version V [--source S]   dirhash each package dir and publish it
@@ -45,6 +51,10 @@ func main() {
 		err = cmdVerify(os.Args[2:])
 	case "manifest":
 		err = cmdManifest(os.Args[2:])
+	case "add":
+		err = cmdAdd(os.Args[2:])
+	case "bump":
+		err = cmdBump(os.Args[2:])
 	case "publish":
 		err = cmdPublish(os.Args[2:])
 	case "resolve":
@@ -296,4 +306,124 @@ func cmdLog(args []string) error {
 	}
 	fmt.Printf("log verified: %d entries, hash chain + Ed25519 signatures OK\n", n)
 	return nil
+}
+
+// ── authoring (emit overlays) ────────────────────────────────────────────────
+
+func refMapJSON(ref, kind string) (map[string]any, error) {
+	if _, err := ir.SchemeOf(ref); err != nil {
+		return nil, err
+	}
+	m := map[string]any{"ref": ref}
+	if kind != "" {
+		m["kind"] = kind
+	}
+	return m, nil
+}
+
+func modelMapJSON(ref string) (map[string]any, error) {
+	scheme, err := ir.SchemeOf(ref)
+	if err != nil {
+		return nil, err
+	}
+	if scheme == "swarmidx" { // a policy ref
+		return map[string]any{"policy": map[string]any{"ref": ref, "kind": "data"}}, nil
+	}
+	return map[string]any{"ref": ref}, nil // a service ref (no kind)
+}
+
+func emitOverlay(swarm string, seq int, op string, payload map[string]any, outPath string) error {
+	overlay := map[string]any{
+		"v": 1, "kind": "swarm.overlay", "swarm": swarm, "apply": "incremental",
+		"events": []any{map[string]any{"seq": seq, "op": op, "payload": payload}},
+	}
+	data, err := json.MarshalIndent(overlay, "", "  ")
+	if err != nil {
+		return err
+	}
+	// Self-check: the emitted overlay must be valid IR2.
+	if _, err := ir.ParseOverlay(data); err != nil {
+		return fmt.Errorf("emitted an invalid overlay: %w", err)
+	}
+	if outPath != "" {
+		return os.WriteFile(outPath, append(data, '\n'), 0o644)
+	}
+	fmt.Println(string(data))
+	return nil
+}
+
+func cmdAdd(args []string) error {
+	fs := flag.NewFlagSet("add", flag.ContinueOnError)
+	as := fs.String("as", "", "slot: agent:NAME or object:NAME")
+	model := fs.String("model", "", "model ref (for agent): a service ref or a swarmidx policy")
+	backend := fs.String("backend", "bwrap", "backend ref (for agent)")
+	swarm := fs.String("swarm", "swarm", "the swarm name for the overlay envelope")
+	seq := fs.Int("seq", 1, "event seq")
+	out := fs.String("o", "", "write the overlay to this file instead of stdout")
+	if len(args) < 1 {
+		return fmt.Errorf("usage: gsp add <pkgref> --as agent:NAME|object:NAME [flags]")
+	}
+	pkgref := args[0]
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	slotType, name, ok := strings.Cut(*as, ":")
+	if !ok || name == "" {
+		return fmt.Errorf("--as must be agent:NAME or object:NAME")
+	}
+	switch slotType {
+	case "object":
+		handler, err := refMapJSON(pkgref, "code")
+		if err != nil {
+			return err
+		}
+		return emitOverlay(*swarm, *seq, "add_object",
+			map[string]any{"name": name, "handler": handler}, *out)
+	case "agent":
+		if *model == "" {
+			return fmt.Errorf("--model is required for an agent")
+		}
+		body, err := refMapJSON(pkgref, "data")
+		if err != nil {
+			return err
+		}
+		mdl, err := modelMapJSON(*model)
+		if err != nil {
+			return err
+		}
+		bk, err := refMapJSON(*backend, "")
+		if err != nil {
+			return err
+		}
+		return emitOverlay(*swarm, *seq, "add_agent",
+			map[string]any{"name": name, "body": body, "model": mdl, "backend": bk}, *out)
+	default:
+		return fmt.Errorf("--as must be agent:NAME or object:NAME (got %q)", slotType)
+	}
+}
+
+func cmdBump(args []string) error {
+	fs := flag.NewFlagSet("bump", flag.ContinueOnError)
+	field := fs.String("field", "", "body | model | backend | handler")
+	from := fs.String("from", "", "current digest (sha256:…)")
+	to := fs.String("to", "", "new digest (sha256:…)")
+	migration := fs.String("migration", "", "state_migrate | restart")
+	swarm := fs.String("swarm", "swarm", "the swarm name for the overlay envelope")
+	seq := fs.Int("seq", 1, "event seq")
+	out := fs.String("o", "", "write the overlay to this file instead of stdout")
+	if len(args) < 1 {
+		return fmt.Errorf("usage: gsp bump <target> --field F --from DIGEST --to DIGEST")
+	}
+	target := args[0]
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *field == "" || *from == "" || *to == "" {
+		return fmt.Errorf("--field, --from and --to are required")
+	}
+	payload := map[string]any{"target": target, "field": *field, "from": *from, "to": *to}
+	if *migration != "" {
+		payload["migration"] = *migration
+	}
+	return emitOverlay(*swarm, *seq, "bump_package", payload, *out)
 }
