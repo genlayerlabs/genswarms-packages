@@ -79,10 +79,17 @@ func cmdDirhash(args []string) error {
 }
 
 func cmdMaterialize(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: gsp materialize <seed> [overlay…]")
+	fs := flag.NewFlagSet("materialize", flag.ContinueOnError)
+	doResolve := fs.Bool("resolve", false, "resolve swarmidx: refs against the notary (fills digests)")
+	endpoint := endpointFlag(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
-	seedData, err := os.ReadFile(args[0])
+	files := fs.Args()
+	if len(files) < 1 {
+		return fmt.Errorf("usage: gsp materialize [--resolve] <seed> [overlay…]")
+	}
+	seedData, err := os.ReadFile(files[0])
 	if err != nil {
 		return err
 	}
@@ -90,7 +97,7 @@ func cmdMaterialize(args []string) error {
 	if err != nil {
 		return err
 	}
-	for _, ov := range args[1:] {
+	for _, ov := range files[1:] {
 		data, err := os.ReadFile(ov)
 		if err != nil {
 			return err
@@ -101,6 +108,22 @@ func cmdMaterialize(args []string) error {
 		}
 		state, err = ir.Fold(state, overlay.Events)
 		if err != nil {
+			return err
+		}
+	}
+	if *doResolve {
+		c := client.New(*endpoint, "")
+		if err := state.ResolveSwarmidx(func(ref string) (string, error) {
+			out, err := c.Resolve(ref)
+			if err != nil {
+				return "", err
+			}
+			d, _ := out["digest"].(string)
+			if d == "" {
+				return "", fmt.Errorf("no digest for %s", ref)
+			}
+			return d, nil
+		}); err != nil {
 			return err
 		}
 	}

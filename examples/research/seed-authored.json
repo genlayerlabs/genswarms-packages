@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "kind": "swarm.state",
+  "name": "research",
+  "phase": "desired",
+  "agents": [
+    {
+      "name": "researcher",
+      "body": {"ref": "swarmidx:jmlago/web-researcher@2.0.0", "kind": "data"},
+      "model": {"policy": {"ref": "swarmidx:jmlago/cost-router@2.0.0", "kind": "data"}},
+      "backend": {"ref": "bwrap"}
+    }
+  ],
+  "objects": [
+    {"name": "board", "handler": {"ref": "swarmidx:jmlago/task-board@2.0.0", "kind": "code"}}
+  ],
+  "topology": [["researcher", "board"]]
+}

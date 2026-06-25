@@ -171,6 +171,41 @@ func TestFoldBumpDigestMismatch(t *testing.T) {
 	}
 }
 
+func TestResolveSwarmidx(t *testing.T) {
+	s, err := ParseState([]byte(`{"v":1,"kind":"swarm.state","name":"x","phase":"desired",
+		"agents":[{"name":"a","body":{"ref":"swarmidx:o/b@1","kind":"data"},
+		"model":{"policy":{"ref":"swarmidx:o/p@1","kind":"data"}},"backend":{"ref":"bwrap"}}],
+		"objects":[{"name":"obj","handler":{"ref":"swarmidx:o/h@1","kind":"code"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := map[string]bool{}
+	err = s.ResolveSwarmidx(func(ref string) (string, error) {
+		calls[ref] = true
+		return "sha256:dead", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Agents[0].Body.Digest != "sha256:dead" {
+		t.Error("body not resolved")
+	}
+	if s.Agents[0].Model.Ref.Digest != "sha256:dead" {
+		t.Error("policy ref not resolved")
+	}
+	if s.Objects[0].Handler.Digest != "sha256:dead" {
+		t.Error("handler not resolved")
+	}
+	if s.Agents[0].Backend.Digest != "" {
+		t.Error("non-swarmidx backend must NOT be resolved")
+	}
+	for _, want := range []string{"swarmidx:o/b@1", "swarmidx:o/p@1", "swarmidx:o/h@1"} {
+		if !calls[want] {
+			t.Errorf("did not resolve %s", want)
+		}
+	}
+}
+
 func agentNames(s State) []string {
 	var names []string
 	for _, a := range s.Agents {
