@@ -36,8 +36,9 @@ type Release struct {
 	Name    string `json:"name"`
 	Kind    string `json:"kind"`
 	Version string `json:"version"`
-	Digest  string `json:"digest"`
+	Digest  string `json:"digest"` // a claim; the server computes its own and cross-checks
 	Source  string `json:"source"`
+	Dir     string `json:"dir"`
 }
 
 // LogEntry mirrors a swarmidx transparency-log entry.

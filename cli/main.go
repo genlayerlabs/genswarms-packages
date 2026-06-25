@@ -213,7 +213,7 @@ func cmdPublish(args []string) error {
 			return fmt.Errorf("%s: %w", p.Name, err)
 		}
 		out, err := c.Publish(client.Release{
-			Name: p.Name, Kind: p.Kind, Version: *version, Digest: digest, Source: *source,
+			Name: p.Name, Kind: p.Kind, Version: *version, Digest: digest, Source: *source, Dir: p.Dir,
 		})
 		if err != nil {
 			return fmt.Errorf("publish %s: %w", p.Name, err)
