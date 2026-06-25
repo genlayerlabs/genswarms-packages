@@ -5,3 +5,10 @@ cli/gsp
 # Go build/test artifacts
 *.test
 *.out
+
+# Python / Django (backend)
+backend/.venv/
+backend/db.sqlite3
+backend/staticfiles/
+__pycache__/
+*.pyc
