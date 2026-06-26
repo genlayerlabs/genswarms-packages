@@ -1,32 +1,16 @@
 # GenSwarms Packages (`gsp`)
 
-The open client + spec for sharing [GenSwarms](https://github.com/genlayerlabs/genswarms)
-packages — so the people already building swarms can **share** their bodies,
-policies, handlers, agents, swarms and configurations, content-addressed and
-provable.
+`gsp` is the open CLI for sharing and consuming **GenSwarms** packages — bodies,
+policies, handlers and whole swarms — content-addressed and provable. You author
+packages offline, publish them to a notary, and resolve or verify any of them by a
+stable reference like `swarmidx:scope/name@0.1.0`.
 
-This is the **public, MIT** half: the `gsp` CLI, the design doc, the examples and
-the conformance harness. The hosted notary service ([swarmidx](https://github.com/genlayerlabs/swarmidx))
-is separate — on purpose. `gsp` **verifies** the notary's transparency log
-client-side (`gsp log` recomputes the SHA-256 chain and checks every Ed25519
-signature), so the client must be open for "trust the math, not the server" to
-mean anything.
-
-Three planes, deliberately separate:
-
-- **`gsp` CLI (this repo, `cli/`)** — the offline authoring plane (deterministic:
-  dirhash, fold/materialize, validate, author overlays) **and** the notary client
-  (publish / resolve / verify the log). A single static Go binary, agent-friendly.
-  **Never touches a live swarm.**
-- **`swarmidx`** — the notary: name→digest resolution + a signed transparency log,
-  GitHub-delegated identity. Not a blob host (the bytes live in your git). Lives in
-  its own repo; `gsp` talks to it over HTTP.
-- **Control plane (live, OTP)** — already in
-  [genswarms](https://github.com/genlayerlabs/genswarms): it actuates overlays on
-  the running supervision tree. `gsp` produces overlays; genswarms consumes them.
-  The overlay IR (`swarm.overlay`) is the contract between the two.
-
-See [`gsp-design-doc.md`](gsp-design-doc.md) for the full design.
+The guarantee is **"trust the math, not the server."** Every published release is a
+`name → digest` mapping signed into an append-only **transparency log**. `gsp log`
+fetches that log and re-verifies it entirely on your machine — it recomputes the
+SHA-256 hash chain and checks every Ed25519 signature. The notary never holds your
+bytes; those stay in your git. It only records and signs the mapping, and you can
+prove it never lied.
 
 ## Install
 
@@ -46,40 +30,75 @@ go install github.com/genlayerlabs/genswarms-packages/cli@latest   # installs as
 mv "$(go env GOPATH)/bin/cli" "$(go env GOPATH)/bin/gsp"           # rename if you like
 ```
 
-Agent-driven? The repo ships a Claude Code skill at
-[`.claude/skills/gsp`](.claude/skills/gsp/SKILL.md) — an agent in this workspace
-can load it and use `gsp` directly.
+Using an AI agent? The repo ships a [Claude Code skill](.claude/skills/gsp/SKILL.md)
+the agent can load to drive `gsp` directly.
 
-## The CLI
+## Usage
 
-The IR contract (`swarm.state` / `swarm.overlay`) is owned by genswarms (Elixir);
-this Go CLI conforms to that same JSON contract — `conformance/run.sh` folds the
-same inputs through both and asserts they agree, so a divergence is a failing test,
-not a silent drift.
+`gsp` has two sides: an **offline authoring plane** (deterministic, no network,
+never touches a live swarm) and a **notary client**.
 
 ```
-# offline (deterministic, no network)
-gsp dirhash <dir>                     reproducible digest of a package dir (sha256:…)
-gsp materialize [--resolve] <seed> [overlay…]   fold overlays → materialized swarm.state
-gsp verify <ir.json>                  parse + validate a swarm.state or swarm.overlay
-gsp manifest <swarmidx.json>          parse + validate a package manifest
-gsp add <pkgref> --as agent:NAME|object:NAME    author an add_agent/add_object overlay
-gsp bump <target> --field F --from D --to D     author a bump_package overlay
+# offline — deterministic, no network
+gsp dirhash <dir>                                reproducible digest of a package dir (sha256:…)
+gsp materialize [--resolve] <seed> [overlay…]    fold overlays onto a seed → materialized swarm.state
+gsp verify <ir.json>                             validate a swarm.state or swarm.overlay
+gsp manifest <swarmidx.json>                     validate a package manifest
+gsp add <pkgref> --as agent:NAME|object:NAME     author an add_agent / add_object overlay
+gsp bump <target> --field F --from D --to D       author a bump_package overlay
 
-# notary client (--endpoint / $SWARMIDX_ENDPOINT, --token / $SWARMIDX_TOKEN)
-gsp publish <swarmidx.json> --version V --source S   dirhash each dir and publish it
-gsp resolve <ref>                     resolve swarmidx:scope/name@version → digest
-gsp log                               fetch + verify the transparency log (Ed25519)
+# notary client
+gsp publish <swarmidx.json> --version V --source S   publish each package in the manifest
+gsp resolve <ref>                                    resolve swarmidx:scope/name@version → digest
+gsp log                                              fetch + verify the transparency log
 ```
 
-Build & test (NixOS):
+### Publishing
 
-```bash
+Point `gsp` at a notary and give it a token (create one in the notary's web UI,
+under Tokens). The hosted notary is `https://swarmidx.ygr.ai`:
+
+```sh
+export SWARMIDX_ENDPOINT=https://swarmidx.ygr.ai
+export SWARMIDX_TOKEN=gsp_live_…
+
+gsp publish swarmidx.json --version 0.1.0 --source github://owner/repo@main
+gsp resolve swarmidx:you/web-researcher@0.1.0
+gsp log
+```
+
+The notary is **zero-trust**: it clones your `--source` and re-hashes the package
+dir itself, then signs the result — it never takes your word for the digest. Two
+things follow:
+
+1. the source repo must be reachable by the notary (a public `github://…`), and
+2. `dir` paths in the manifest are relative to the source's **repo root** (run
+   `gsp publish` from there so your local hashes match the notary's).
+
+Versions are immutable — republishing the same `scope/name@version` is rejected;
+bump the version instead.
+
+## How it fits GenSwarms
+
+The package IR (`swarm.state` / `swarm.overlay`) is the contract with
+[genswarms](https://github.com/genlayerlabs/genswarms), the runtime that actuates
+overlays on a live swarm. `gsp` authors and validates that IR offline and produces
+overlays genswarms consumes; it never touches a running swarm itself.
+`conformance/run.sh` folds the same inputs through both `gsp` (Go) and genswarms
+(Elixir) and asserts they agree, so the two implementations can't silently drift.
+
+See [`gsp-design-doc.md`](gsp-design-doc.md) for the full design.
+
+## Build & test
+
+```sh
 cd cli
-nix shell nixpkgs#go -c go build -o gsp .
-nix shell nixpkgs#go -c go test ./...
+go build -o gsp .
+go test ./...
 ```
+
+(On Nix: `nix shell nixpkgs#go -c go build -o gsp .`)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). © 2026 GenLayer Labs Corp.
