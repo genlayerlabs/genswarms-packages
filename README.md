@@ -28,6 +28,28 @@ Three planes, deliberately separate:
 
 See [`gsp-design-doc.md`](gsp-design-doc.md) for the full design.
 
+## Install
+
+Grab a prebuilt binary for your platform from
+[Releases](https://github.com/genlayerlabs/genswarms-packages/releases/latest):
+
+```sh
+curl -L -o gsp https://github.com/genlayerlabs/genswarms-packages/releases/latest/download/gsp-linux-amd64
+chmod +x gsp && sudo mv gsp /usr/local/bin/
+gsp --help
+```
+
+Or build from source (Go 1.25+):
+
+```sh
+go install github.com/genlayerlabs/genswarms-packages/cli@latest   # installs as `cli`
+mv "$(go env GOPATH)/bin/cli" "$(go env GOPATH)/bin/gsp"           # rename if you like
+```
+
+Agent-driven? The repo ships a Claude Code skill at
+[`.claude/skills/gsp`](.claude/skills/gsp/SKILL.md) — an agent in this workspace
+can load it and use `gsp` directly.
+
 ## The CLI
 
 The IR contract (`swarm.state` / `swarm.overlay`) is owned by genswarms (Elixir);
