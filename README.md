@@ -30,8 +30,9 @@ go install github.com/genlayerlabs/genswarms-packages/cli@latest   # installs as
 mv "$(go env GOPATH)/bin/cli" "$(go env GOPATH)/bin/gsp"           # rename if you like
 ```
 
-Using an AI agent? The repo ships a [Claude Code skill](.claude/skills/gsp/SKILL.md)
-the agent can load to drive `gsp` directly.
+Using an AI agent? The repo ships [Claude Code skills](.claude/skills/) it can
+load — [`gsp-use`](.claude/skills/gsp-use/SKILL.md) to drive `gsp` directly, and
+[`gsp-contribute`](.claude/skills/gsp-contribute/SKILL.md) to develop it.
 
 ## Usage
 

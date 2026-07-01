@@ -1,5 +1,5 @@
 ---
-name: gsp
+name: gsp-use
 description: >-
   Author, publish, resolve and verify GenSwarms packages with the gsp CLI
   against a swarmidx notary. Use when sharing or consuming GenSwarms components
@@ -98,3 +98,10 @@ in the clone you get `dir … not found`.
   their IR, walked by the resolver.
 - The offline subcommands are safe to run anywhere; only publish/resolve/log
   reach the network.
+
+## Where to read more
+
+- `README.md` — install, the full command table, publishing.
+- `gsp-design-doc.md` — the package model, the IR, the transparency-log design.
+- To develop `gsp` itself (add a command, touch the IR/dirhash), use the
+  **`gsp-contribute`** skill.
