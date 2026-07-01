@@ -60,9 +60,10 @@ included/excluded) must land on **both** sides or every publish breaks.
 
 1. Add a `case "<name>":` in `main.go`'s dispatch and a `cmd<Name>(args []string)`
    handler with its own `flag.NewFlagSet`.
-2. Keep offline commands offline — only `publish`/`resolve`/`log` may touch the
-   network (via `internal/client`); everything else must be deterministic and
-   network-free (it's a documented guarantee).
+2. Keep offline commands offline — only `publish`, `resolve`, `log`, and
+   `materialize --resolve` (which resolves `swarmidx:` refs via `internal/client`)
+   may touch the network; every other command (and `materialize` without
+   `--resolve`) must be deterministic and network-free.
 3. Reuse `internal/ir` / `internal/manifest` for validation rather than
    re-parsing; validation lives there.
 
