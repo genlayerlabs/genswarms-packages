@@ -192,6 +192,10 @@ JSON en todo el sistema — un solo formato, un solo parser, un solo modelo ment
 - `scope` **debe** coincidir con el owner de GitHub; se verifica al publicar.
 - **Sin campo `version` por paquete** — la versión la aporta el tag (§8).
 - El `swarmidx.json` no se hashea: lo dirasheado es el contenido de cada `dir`, no el manifest.
+- Metadata de ficha (opcional, no notarizada): `description`, y `docs` / `skill` —
+  ruta relativa a la raíz del source (p.ej. `docs/guide.md`) o URL absoluta. Si el
+  manifest no los declara, el notary detecta `README.md` / `SKILL.md` en el `dir`
+  del paquete (en el mismo clone en que hashea) y los usa como fallback.
 
 ---
 

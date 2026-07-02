@@ -22,12 +22,17 @@ type Registry struct {
 }
 
 // Package is one entry: name + dir (whose content is hashed) + kind (slot role).
+// Docs/Skill are display metadata for the registry card: a path relative to the
+// source root (e.g. "docs/guide.md") or an absolute URL. When absent the notary
+// falls back to README.md / SKILL.md detected in the package dir.
 type Package struct {
 	Name        string   `json:"name"`
 	Dir         string   `json:"dir"`
 	Kind        string   `json:"kind"`
 	Description string   `json:"description,omitempty"`
 	Note        string   `json:"note,omitempty"`
+	Docs        string   `json:"docs,omitempty"`
+	Skill       string   `json:"skill,omitempty"`
 	Deps        []string `json:"deps,omitempty"`
 }
 

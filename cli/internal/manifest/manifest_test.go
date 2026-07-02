@@ -6,7 +6,8 @@ func TestParseValid(t *testing.T) {
 	doc := `{
 	  "registry": {"scope": "jmlago"},
 	  "packages": [
-	    {"name": "web-researcher", "dir": "packages/web-researcher", "kind": "body", "description": "Web research agent body"},
+	    {"name": "web-researcher", "dir": "packages/web-researcher", "kind": "body", "description": "Web research agent body",
+	     "docs": "docs/guide.md", "skill": "packages/web-researcher/SKILL.md"},
 	    {"name": "cost-router", "dir": "packages/cost-router", "kind": "policy"},
 	    {"name": "task-board", "dir": "packages/task-board", "kind": "handler", "deps": ["jmlago/kv-store@^0.3"]},
 	    {"name": "research-swarm", "dir": "packages/research-swarm", "kind": "swarm"}
