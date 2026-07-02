@@ -166,6 +166,57 @@ El resolver usa el `kind` para **typing de slots**: rechaza meter un `kind: hand
 
 > **Abierto:** `data`/`code` parece *derivable* del kind (body/policy → data, handler → code). Confirmar que no hay un kind que sea a veces uno y a veces otro; si no, no es campo del manifest.
 
+### 6.1 Qué debería ser un package (y qué no)
+
+El criterio se deriva de "kind = rol de slot" y conviene hacerlo explícito:
+
+> **Un package es lo que un swarm referencia por contenido para constituirse: lo que
+> rellena un slot del IR.** La prueba operativa: *¿pueden `gsp add` o
+> `gsp materialize --resolve` hacer algo con él?* Si la respuesta es no, no es un
+> package — es otra cosa con otro cauce.
+
+Pasan el criterio: bodies (qué es el agente), policies (cómo elige modelo), handlers
+(qué objeto corre), swarms (la composición entera). Quedan fuera **tres clases**, cada
+una con su cauce propio:
+
+1. **Sustrato** — el engine genswarms, subzeroclaw, el router LLM. El swarm corre
+   *sobre* ellos; ningún slot los referencia. Su cauce: releases/instalación propios.
+   Empaquetarlos sería catalogar la infraestructura, no componer el swarm.
+2. **Clientes y observadores externos** — UIs, frontends, CLIs, cualquier cosa que
+   mira el swarm desde fuera por un API. No tienen slot, la topología no los gatea,
+   el resolver no tiene nada que resolver. Su cauce: artefactos de deploy (imagen,
+   repo), enlazados desde la ficha del package si acompañan a uno (campos
+   `docs`/`skill` del §7).
+3. **Código del host por definición** — implementaciones de behaviours que un package
+   deja deliberadamente al host (un `DataSource`, un adapter app-specific). Es
+   app-specific por diseño: no hay bytes generales que notarizar. Su cauce: el repo
+   del host. (El adapter *de referencia* entre dos packages vive en el package que
+   posee los específicos — p. ej. el DataSource de referencia para un transporte
+   Telegram pertenece al package de Telegram, no al host.)
+
+**Objetivar: convertir una capacidad en package.** El camino para algo que hoy es una
+librería/boot-script y *debería* ser slot content es darle forma de objeto primero:
+
+1. Envolver el lifecycle en un **object handler** (`init/1` arranca con config
+   puro-dato, `terminate/2` para determinista, `handle_message/3` con un protocolo
+   JSON mínimo — al menos `{"action":"status"}` —, `interface/0` lo documenta).
+2. Config = **datos, no código**: refs a módulos como átomos (defs Elixir) o strings
+   (IR JSON) resueltos con `to_existing_atom` (sin mintear átomos; módulo desconocido
+   ⇒ init falla, fail-closed). Defaults utilizables sin código del host cuando sea
+   posible (un `Null` data source vale más que un required).
+3. Sin dep de compilación sobre el engine: callbacks **por convención**, no
+   `@behaviour` — genswarms es peer/runtime dep y la librería compila sola.
+4. `swarmidx.json` con `kind: handler` y **`dir` apuntando solo a lo que el swarm
+   carga** (si el repo trae además un frontend/cliente, fuera del `dir`: el digest
+   debe cubrir exactamente lo consumible).
+5. Publicar (tag). Referencias: `genswarms-telegram` (Ingress/Sender) y
+   `genswarms-dashboard` (`Objects.Dashboard` + `DataSource.Null`).
+
+Añadir un `kind` nuevo para las clases excluidas (p. ej. `app`/`ui` para frontends) se
+rechazó deliberadamente: un kind sin semántica de resolución convierte el registry en
+un catálogo de links — otra finalidad. Si algún día existe una historia real de
+attachments operacionales por swarm, se diseña entonces con su semántica.
+
 ---
 
 ## 7. El manifest: `swarmidx.json`

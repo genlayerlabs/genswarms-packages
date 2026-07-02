@@ -90,6 +90,29 @@ overlays genswarms consumes; it never touches a running swarm itself.
 
 See [`gsp-design-doc.md`](gsp-design-doc.md) for the full design.
 
+## What is a package (and what is not)
+
+A package's `kind` is a **slot role** in the swarm IR — so the boundary is:
+
+> A package is what a swarm references by content to constitute itself: something
+> that fills an IR slot. Operational test: can `gsp add` or
+> `gsp materialize --resolve` do anything with it? If not, it is not a package.
+
+In: agent bodies, policies, object handlers, whole swarms. Out, each with its own
+channel: **substrate** (the engine, runtimes, the LLM router — swarms run ON them,
+no slot references them), **external clients/observers** (UIs, frontends, CLIs —
+no slot, nothing to resolve; they are deploy artifacts, linked from a package's
+card via the manifest's `docs`/`skill` fields), and **host code by definition**
+(behaviour implementations a package deliberately leaves to the host app).
+
+To turn a library/boot-script capability into a package, **objectify it first**:
+wrap its lifecycle in an object handler (`init`/`terminate`/`handle_message` with
+a minimal JSON protocol, config as pure data, module refs resolved without atom
+minting, no compile dep on the engine), point the manifest's `dir` at exactly what
+a swarm loads, then publish. Reference implementations: `genswarms-telegram`
+(Ingress/Sender) and `genswarms-dashboard` (`Objects.Dashboard`). Full criterion
+and the objectifying checklist: design doc §6.1.
+
 ## Build & test
 
 ```sh
