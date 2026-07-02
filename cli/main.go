@@ -15,6 +15,7 @@ import (
 	"github.com/genlayerlabs/genswarms-packages/cli/internal/dirhash"
 	"github.com/genlayerlabs/genswarms-packages/cli/internal/ir"
 	"github.com/genlayerlabs/genswarms-packages/cli/internal/manifest"
+	"github.com/genlayerlabs/genswarms-packages/cli/internal/vendorer"
 )
 
 const usage = `gsp — GenSwarms Packages CLI
@@ -34,6 +35,8 @@ notary client (talks to swarmidx; --endpoint / $SWARMIDX_ENDPOINT, --token / $SW
   gsp publish <swarmidx.json> --version V [--source S]   dirhash each package dir and publish it
   gsp resolve <ref>                                      resolve swarmidx:scope/name@version → digest
   gsp log [--since N]                                    fetch + verify the transparency log (Ed25519)
+  gsp vendor <ref | ir.json>… [--dir D]                  fetch each ref, RE-VERIFY its dirhash locally,
+                                                         land it under D (default vendor/swarmidx) + lock
 `
 
 func main() {
@@ -45,6 +48,8 @@ func main() {
 	switch os.Args[1] {
 	case "dirhash":
 		err = cmdDirhash(os.Args[2:])
+	case "vendor":
+		err = cmdVendor(os.Args[2:])
 	case "materialize":
 		err = cmdMaterialize(os.Args[2:])
 	case "verify":
@@ -427,4 +432,73 @@ func cmdBump(args []string) error {
 		payload["migration"] = *migration
 	}
 	return emitOverlay(*swarm, *seq, "bump_package", payload, *out)
+}
+
+// gsp vendor <ref | materialized-ir>… [--dir vendor/swarmidx] — design §14.1:
+// resolve each swarmidx: ref, fetch its source, RE-HASH the package dir locally,
+// require it to equal the notarized digest, land it under the vendor root and
+// write vendor-lock.json. Trust the math, not the server.
+func cmdVendor(args []string) error {
+	fs := flag.NewFlagSet("vendor", flag.ContinueOnError)
+	dir := fs.String("dir", "vendor/swarmidx", "vendor root directory")
+	endpoint := endpointFlag(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	items := fs.Args()
+	if len(items) == 0 {
+		return fmt.Errorf("usage: gsp vendor <swarmidx:ref | materialized-ir.json>… [--dir DIR]")
+	}
+
+	var refs []string
+	seen := map[string]bool{}
+	for _, it := range items {
+		if strings.HasPrefix(it, "swarmidx:") {
+			if !seen[it] {
+				seen[it] = true
+				refs = append(refs, it)
+			}
+			continue
+		}
+		data, err := os.ReadFile(it)
+		if err != nil {
+			return err
+		}
+		state, err := ir.ParseState(data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", it, err)
+		}
+		for _, r := range state.SwarmidxRefs() {
+			if !seen[r] {
+				seen[r] = true
+				refs = append(refs, r)
+			}
+		}
+	}
+	if len(refs) == 0 {
+		return fmt.Errorf("no swarmidx: refs found in %v", items)
+	}
+
+	c := client.New(*endpoint, "")
+	resolve := func(ref string) (vendorer.Resolved, error) {
+		out, err := c.Resolve(ref)
+		if err != nil {
+			return vendorer.Resolved{}, err
+		}
+		digest, _ := out["digest"].(string)
+		source, _ := out["source"].(string)
+		pkgDir, _ := out["dir"].(string)
+		return vendorer.Resolved{Digest: digest, Source: source, Dir: pkgDir}, nil
+	}
+
+	var entries []vendorer.LockEntry
+	for _, ref := range refs {
+		entry, err := vendorer.Vendor(*dir, ref, resolve)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, entry)
+		fmt.Printf("vendored %s  %s  -> %s\n", entry.Ref, entry.Digest, entry.Path)
+	}
+	return vendorer.WriteLock(*dir, entries)
 }
