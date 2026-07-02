@@ -30,6 +30,13 @@ func HashDir(dir string) (string, error) {
 			return err
 		}
 		if d.IsDir() {
+			// VCS internals are not package content: a clone's .git differs
+			// per clone (pack layout), so including it makes the digest of a
+			// dir:"." package non-reproducible — the notary's clone and the
+			// publisher's checkout could never agree.
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		rel, err := filepath.Rel(dir, p)
