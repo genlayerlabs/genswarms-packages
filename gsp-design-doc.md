@@ -249,6 +249,9 @@ JSON across the whole system — one format, one parser, one mental model (the I
 - `scope` **must** match the GitHub owner; verified at publish.
 - **No per-package `version` field** — the tag provides the version (§8).
 - `swarmidx.json` itself is not hashed: what gets dirhashed is each `dir`'s content, not the manifest.
+- `module` (optional, informational): the entry module a `kind: handler` package mirrors
+  from its in-dir `swarm-object.json` (§14.2) for the card/resolve convenience. The
+  loader trusts ONLY the notarized in-dir file — never this mirror.
 - Card metadata (optional, not notarized): `description`, plus `docs` / `skill` —
   a path relative to the source root (e.g. `docs/guide.md`) or an absolute URL.
   When the manifest does not declare them, the notary detects `README.md` /
@@ -333,11 +336,89 @@ Given the `"attested": true` flag and the attestation/sovereignty orientation, t
 4. **Checkpoint/compaction cadence:** every N events, time-based, or explicit? (§4.4)
 5. **Is a `deps` section needed on day one**, or deferred? (§9)
 6. **Transparency log: v1 or a later iteration?**
-7. **Local cache/vendoring:** where resolved bytes materialize and how they get garbage-collected.
+7. ~~**Local cache/vendoring**~~ → **Settled (§14):** `gsp vendor` + `vendor-lock.json`; GC by regenerating the vendor dir from the lock.
 
 ---
 
-## 14. Future direction (outside v1 scope)
+## 14. Resolver → runtime: vendoring and code loading
+
+Closes open question #7 and specifies the last link of the circuit: a resolved
+`swarmidx:` ref becoming loadable code in the engine BEAM.
+
+### 14.1 `gsp vendor` — verified bytes on disk
+
+`gsp vendor <materialized-ir | ref…> [--dir vendor/swarmidx]`, offline plane:
+
+1. For each `swarmidx:` ref, `resolve` against the notary → `{digest, source, dir}`.
+2. Shallow-clone `source` at its tag, **recompute the dirhash of `dir` locally**,
+   and require it to equal the notarized digest — trust the math, not the server
+   (the same posture as `gsp log`). Mismatch ⇒ hard fail, nothing written.
+3. Copy the package dir to `vendor/swarmidx/<scope>__<name>@<version>/` and record
+   `{ref, digest, path}` in `vendor-lock.json` at the vendor root.
+
+The vendor dir is disposable: regenerating it from the lock re-verifies every
+digest. A later `gsp vendor` run re-verifies existing entries by re-hashing the
+on-disk dir (cheap) instead of re-cloning.
+
+### 14.2 The entry convention: `swarm-object.json` INSIDE the hashed dir
+
+A handler ref resolves to a digest of a directory of `.ex` files; the loader must
+know which module is THE object handler and in which order files compile. That
+binding is **behavior**, so it must live inside the notarized bytes — a mutable
+registry field could silently redirect the handler to a different module within
+the same verified directory.
+
+Convention: `kind: handler` packages ship a `swarm-object.json` at the package
+dir root (therefore dirhashed):
+
+```json
+{ "module": "Genswarms.Browse",
+  "files": ["browse_core.ex", "browse.ex"] }
+```
+
+- `module` — the ObjectHandler module the engine binds.
+- `files` — compile order, relative to the package dir (optional; absent ⇒
+  lexicographic; needed whenever a file `@behaviour`s or struct-references a
+  sibling).
+
+The manifest MAY mirror `module` (and the registry may show it on the card /
+return it from resolve) — that mirror is informational convenience only; the
+loader trusts exclusively the in-dir file.
+
+### 14.3 The engine loader: two modes
+
+`Genswarms.Packages.Loader` (engine side), fail-closed in both modes:
+
+- **`:verify` — attestation.** For hosts that already compile the package as a
+  mix dep (wingston, micro-markets): assert that the bytes the app compiled
+  (`deps/<app>/<pkg dir>`) re-hash to the notarized digest and that
+  `swarm-object.json.module` is loaded. No code loading — avoids double module
+  definition. This turns the swarm def's ref+digest into a boot-time
+  supply-chain check: *the code running is the code notarized.*
+- **`:require` — load.** For IR-cast swarms with no mix dep (the STRATEGIVM
+  path): re-hash the vendored dir against the ref's digest, `Code.require_file`
+  the files in entry order, and return the entry module. Any mismatch, missing
+  entry file, or compile error ⇒ the object does not start (never a silently
+  different handler).
+
+Boot-from-IR: a swarm definition may carry
+`handler: %{ref: "swarmidx:scope/name@v", digest: "sha256:…", mode: :verify | :require}`;
+`SwarmManager` resolves it through the Loader before `ObjectServer` start. Opt-in
+(`GENSWARMS_VENDOR_DIR` / config) — module-name handlers keep working unchanged.
+
+### 14.4 What this buys, layer by layer
+
+| Layer | Guarantee |
+|---|---|
+| notary | `name@version → digest`, Ed25519-signed, append-only |
+| `gsp vendor` | bytes on disk == notarized digest (recomputed locally) |
+| loader `:verify` | bytes compiled into the BEAM == notarized digest |
+| loader `:require` | bytes loaded at boot == notarized digest, entry module from inside those bytes |
+| `bump_package` (§4.5) | the hot-swap target digest verified the same way before the swap |
+
+---
+
+## 15. Future direction (outside v1 scope)
 
 - **Control-plane HA:** replicated controllers → the overlay log would need replication/consensus (§4.1). Today: single-writer per BEAM.
 - **Phylogenesis:** `seed` (IR1) + overlays (IR2) ≅ genome + mutations; overlays as genetic diffs over the seed, with `gsp` as the distribution/versioning layer for genetic material.

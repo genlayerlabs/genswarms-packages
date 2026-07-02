@@ -30,6 +30,7 @@ type Package struct {
 	Dir         string   `json:"dir"`
 	Kind        string   `json:"kind"`
 	Description string   `json:"description,omitempty"`
+	Module      string   `json:"module,omitempty"`
 	Note        string   `json:"note,omitempty"`
 	Docs        string   `json:"docs,omitempty"`
 	Skill       string   `json:"skill,omitempty"`
