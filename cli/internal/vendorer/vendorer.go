@@ -33,8 +33,9 @@ type Lock struct {
 // Resolved is what the notary answers for a ref (the subset vendoring needs).
 type Resolved struct {
 	Digest string
-	Source string // github://owner/repo@tag | local:/abs/path
-	Dir    string // package dir within the source ("." for the root)
+	Source string   // github://owner/repo@tag | local:/abs/path
+	Dir    string   // package dir within the source ("." for the root)
+	Deps   []string // exact-pin dep refs ("scope/name@version"), walked transitively
 }
 
 var refRe = regexp.MustCompile(`^swarmidx:([^/]+)/([^@]+)@(.+)$`)
@@ -44,16 +45,21 @@ var ghRe = regexp.MustCompile(`^github://([^/]+)/([^@]+)@(.+)$`)
 // resolve is injected (the notary client); fetches go through git or the
 // local: scheme (tests).
 func Vendor(vendorRoot, ref string, resolve func(string) (Resolved, error)) (LockEntry, error) {
+	res, err := resolve(ref)
+	if err != nil {
+		return LockEntry{}, fmt.Errorf("resolve %s: %w", ref, err)
+	}
+	return vendorResolved(vendorRoot, ref, res)
+}
+
+// vendorResolved verifies and lands one already-resolved ref.
+func vendorResolved(vendorRoot, ref string, res Resolved) (LockEntry, error) {
 	m := refRe.FindStringSubmatch(ref)
 	if m == nil {
 		return LockEntry{}, fmt.Errorf("not a swarmidx ref: %q", ref)
 	}
 	scope, name, version := m[1], m[2], m[3]
 
-	res, err := resolve(ref)
-	if err != nil {
-		return LockEntry{}, fmt.Errorf("resolve %s: %w", ref, err)
-	}
 	if res.Digest == "" {
 		return LockEntry{}, fmt.Errorf("resolve %s: notary returned no digest", ref)
 	}
@@ -184,4 +190,45 @@ func firstLine(out []byte) string {
 		s = s[:200]
 	}
 	return s
+}
+
+// VendorAll vendors refs AND their notarized deps, breadth-first: each
+// resolved release's exact-pin deps ("scope/name@version") join the queue as
+// swarmidx: refs. The registry guarantees the dep graph is a DAG (a dep must
+// be notarized before its dependent), so the seen-set is enough; the depth cap
+// is a corrupted-registry backstop, not a design limit.
+func VendorAll(vendorRoot string, refs []string, resolve func(string) (Resolved, error)) ([]LockEntry, error) {
+	const maxDepth = 32
+
+	seen := map[string]bool{}
+	queue := append([]string{}, refs...)
+	var entries []LockEntry
+
+	for depth := 0; len(queue) > 0; depth++ {
+		if depth > maxDepth {
+			return nil, fmt.Errorf("dependency chain deeper than %d — refusing (corrupted registry?)", maxDepth)
+		}
+		var next []string
+		for _, ref := range queue {
+			if seen[ref] {
+				continue
+			}
+			seen[ref] = true
+
+			res, err := resolve(ref)
+			if err != nil {
+				return nil, fmt.Errorf("resolve %s: %w", ref, err)
+			}
+			entry, err := vendorResolved(vendorRoot, ref, res)
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, entry)
+			for _, dep := range res.Deps {
+				next = append(next, "swarmidx:"+dep)
+			}
+		}
+		queue = next
+	}
+	return entries, nil
 }

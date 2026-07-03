@@ -287,6 +287,7 @@ The registry reads `swarmidx.json` at that commit, computes each `dir`'s digest,
 
 - **`kind: swarm`** → **needs no `deps` section.** Its deps *are* the refs already living in its IR. The resolver walks them.
 - **`kind: body` / `policy` / `handler`** with deps not discoverable from the slot (a body with a pinned policy, a handler importing another handler) → declared in `deps`. Object→object (`task-board` depends on `kv-store`) is this case.
+- **Implemented (v1, exact pins):** `deps: ["scope/name@version"]` — the registry REQUIRES each dep to be already notarized at publish time, which makes the graph a DAG by construction (immutable releases + totally-ordered publication; no cycle detector). `gsp vendor` walks deps transitively (BFS, shared deps land once). Semver ranges (`^`) stay future: they need a max-satisfying resolver over the registry's `versions[]` listing.
 
 ### Two distinct graphs — do not conflate
 
