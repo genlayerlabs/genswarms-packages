@@ -42,6 +42,7 @@ type Release struct {
 	Description string   `json:"description,omitempty"`
 	Docs        string   `json:"docs,omitempty"`
 	Skill       string   `json:"skill,omitempty"`
+	Module      string   `json:"module,omitempty"`
 	Deps        []string `json:"deps,omitempty"`
 }
 
