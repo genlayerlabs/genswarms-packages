@@ -102,3 +102,64 @@ func TestVendorRejectsUnsafeDir(t *testing.T) {
 		t.Fatal("expected unsafe-dir rejection")
 	}
 }
+
+func TestVendorAllWalksDepsTransitively(t *testing.T) {
+	// b depends on a; vendoring b must land BOTH, each verified.
+	srcA, digestA := fixtureSource(t)
+	srcB := t.TempDir()
+	writeFile(t, filepath.Join(srcB, "pkgs", "b", "swarm-object.json"),
+		`{"module":"Genswarms.B"}`+"\n")
+	writeFile(t, filepath.Join(srcB, "pkgs", "b", "b.ex"), "obj-b\n")
+	digestB, err := dirhash.HashDir(filepath.Join(srcB, "pkgs", "b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resolve := func(ref string) (Resolved, error) {
+		switch ref {
+		case "swarmidx:acme/b@1.0.0":
+			return Resolved{Digest: digestB, Source: "local:" + srcB, Dir: "pkgs/b",
+				Deps: []string{"acme/a@1.0.0"}}, nil
+		case "swarmidx:acme/a@1.0.0":
+			return Resolved{Digest: digestA, Source: "local:" + srcA, Dir: "pkgs/a"}, nil
+		}
+		t.Fatalf("unexpected resolve: %s", ref)
+		return Resolved{}, nil
+	}
+
+	root := t.TempDir()
+	entries, err := VendorAll(root, []string{"swarmidx:acme/b@1.0.0"}, resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected b + its dep a, got %d entries", len(entries))
+	}
+	for _, e := range entries {
+		if landed, err := dirhash.HashDir(filepath.Join(root, e.Path)); err != nil || landed != e.Digest {
+			t.Fatalf("entry %s does not re-verify", e.Ref)
+		}
+	}
+}
+
+func TestVendorAllSharedDepVendoredOnce(t *testing.T) {
+	src, digest := fixtureSource(t)
+	calls := 0
+	resolve := func(ref string) (Resolved, error) {
+		calls++
+		switch ref {
+		case "swarmidx:acme/x@1", "swarmidx:acme/y@1":
+			return Resolved{Digest: digest, Source: "local:" + src, Dir: "pkgs/a",
+				Deps: []string{"acme/shared@1"}}, nil
+		default: // shared
+			return Resolved{Digest: digest, Source: "local:" + src, Dir: "pkgs/a"}, nil
+		}
+	}
+	entries, err := VendorAll(t.TempDir(), []string{"swarmidx:acme/x@1", "swarmidx:acme/y@1"}, resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 || calls != 3 {
+		t.Fatalf("shared dep must resolve exactly once: entries=%d calls=%d", len(entries), calls)
+	}
+}

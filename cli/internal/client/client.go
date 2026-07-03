@@ -33,15 +33,16 @@ func New(endpoint, token string) *Client {
 
 // Release is the publish payload (matches swarmidx /v1/publish).
 type Release struct {
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	Version     string `json:"version"`
-	Digest      string `json:"digest"` // a claim; the server computes its own and cross-checks
-	Source      string `json:"source"`
-	Dir         string `json:"dir"`
-	Description string `json:"description,omitempty"`
-	Docs        string `json:"docs,omitempty"`
-	Skill       string `json:"skill,omitempty"`
+	Name        string   `json:"name"`
+	Kind        string   `json:"kind"`
+	Version     string   `json:"version"`
+	Digest      string   `json:"digest"` // a claim; the server computes its own and cross-checks
+	Source      string   `json:"source"`
+	Dir         string   `json:"dir"`
+	Description string   `json:"description,omitempty"`
+	Docs        string   `json:"docs,omitempty"`
+	Skill       string   `json:"skill,omitempty"`
+	Deps        []string `json:"deps,omitempty"`
 }
 
 // LogEntry mirrors a swarmidx transparency-log entry.

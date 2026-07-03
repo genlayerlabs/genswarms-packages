@@ -252,7 +252,7 @@ func cmdPublish(args []string) error {
 		}
 		out, err := c.Publish(client.Release{
 			Name: p.Name, Kind: p.Kind, Version: *version, Digest: digest, Source: *source, Dir: p.Dir,
-			Description: p.Description, Docs: p.Docs, Skill: p.Skill,
+			Description: p.Description, Docs: p.Docs, Skill: p.Skill, Deps: p.Deps,
 		})
 		if err != nil {
 			return fmt.Errorf("publish %s: %w", p.Name, err)
@@ -488,16 +488,22 @@ func cmdVendor(args []string) error {
 		digest, _ := out["digest"].(string)
 		source, _ := out["source"].(string)
 		pkgDir, _ := out["dir"].(string)
-		return vendorer.Resolved{Digest: digest, Source: source, Dir: pkgDir}, nil
+		var deps []string
+		if raw, ok := out["deps"].([]any); ok {
+			for _, d := range raw {
+				if s, ok := d.(string); ok {
+					deps = append(deps, s)
+				}
+			}
+		}
+		return vendorer.Resolved{Digest: digest, Source: source, Dir: pkgDir, Deps: deps}, nil
 	}
 
-	var entries []vendorer.LockEntry
-	for _, ref := range refs {
-		entry, err := vendorer.Vendor(*dir, ref, resolve)
-		if err != nil {
-			return err
-		}
-		entries = append(entries, entry)
+	entries, err := vendorer.VendorAll(*dir, refs, resolve)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
 		fmt.Printf("vendored %s  %s  -> %s\n", entry.Ref, entry.Digest, entry.Path)
 	}
 	return vendorer.WriteLock(*dir, entries)
