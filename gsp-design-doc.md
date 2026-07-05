@@ -386,6 +386,60 @@ The manifest MAY mirror `module` (and the registry may show it on the card /
 return it from resolve) — that mirror is informational convenience only; the
 loader trusts exclusively the in-dir file.
 
+### 14.2.1 `config_schema` — the object's configuration contract
+
+A handler's `swarm-object.json` MAY declare a `config_schema`: a JSON Schema
+(draft 2020-12 subset: `type`, `properties`, `required`, `default`, `enum`,
+`items`, `description`) describing the object's `config` map. Like `module`,
+it is **behavior** and lives inside the notarized bytes — a schema served from
+a mutable registry field could silently relabel a secret as displayable.
+
+```json
+{ "module": "Genswarms.Whatsapp.Objects.Sender",
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "phone_id":         { "type": "string", "x-mutable": false },
+      "access_token_env": { "type": "string", "x-secret": true,
+                            "default": "WHATSAPP_ACCESS_TOKEN" },
+      "templates":        { "type": "object", "x-mutable": true },
+      "allowed_sources":  { "type": "array", "x-mutable": false }
+    },
+    "required": ["phone_id"]
+  } }
+```
+
+Two extension keywords, both fail-closed:
+
+- **`x-secret: true`** — the field's VALUE is the **name of an environment
+  variable**, never the secret itself. The object resolves it with
+  `System.get_env/1` in its own `init/1`, so the secret exists only inside
+  the object's state (closure-wrapped per the ecosystem posture) and never
+  appears in the swarm config, the overlay log, a snapshot, or any
+  config-reading UI. Tooling renders these fields as an env-var-name picker.
+- **`x-mutable: true`** — the field may be changed on a RUNNING swarm via an
+  IR2 `update_config` event (the engine restarts the object with the merged
+  config). Fields without it are boot-time only: a configurator renders them
+  read-only and an `update_config` carrying them MUST be rejected by the
+  op gate. Default is `false` — immutable unless the package says otherwise.
+
+Consumers and their obligations:
+
+- **read-only config surfaces** (dashboard Config page): show a field's value
+  only if it appears in `config_schema` and is not `x-secret`; `x-secret`
+  fields render as the env-var name with the value elided; config keys ABSENT
+  from the schema render name-only, value elided (fail-closed: an unlisted
+  key is treated as sensitive).
+- **write surfaces** (configurator): generate forms from the schema; reject
+  edits to non-`x-mutable` fields client- AND server-side (the op gate is
+  authoritative).
+- **packages**: keep the schema conformant with `init/1` — every config key
+  the handler reads appears in the schema and vice versa; ship a test that
+  asserts it (the schema is a contract, drift is a bug).
+
+`config_schema` is optional; a handler without one is still loadable, but
+config tooling degrades to name-only display and refuses writes entirely.
+
 ### 14.3 The engine loader: two modes
 
 `Genswarms.Packages.Loader` (engine side), fail-closed in both modes:
