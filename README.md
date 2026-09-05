@@ -146,8 +146,11 @@ overlays genswarms consumes; it never touches a running swarm itself.
 `conformance/run.sh` folds fixtures through both `gsp` (Go) and genswarms
 (Elixir) and compares every parsed state field, including backend options,
 images, TUI clients, model policies, object configuration and swarm options.
-It checks semantic equality, not JSON byte identity; omitted defaults and
-whitespace may differ. This is an offline data-contract check, not proof of
+It also serializes the folded state with Elixir's `State.to_map`, reparses and
+re-emits that JSON with Go, and compares the entire result again. The four
+fixture runs cover provider overrides and package-handler loader metadata as
+well as the existing execution fields. It checks semantic equality, not JSON
+byte identity; omitted defaults and whitespace may differ. This is an offline data-contract check, not proof of
 live execution or database restart behavior.
 
 See [`gsp-design-doc.md`](gsp-design-doc.md) for the full design.

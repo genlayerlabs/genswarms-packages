@@ -10,7 +10,7 @@
       "model": {"ref": "openrouter:example/model", "attested": true},
       "backend": {"ref": "tmux", "client": "codex", "opts": {"approval_policy": "never", "sandbox": "workspace-write"}},
       "config": {"label": "offline fixture", "nested": {"enabled": false}},
-      "overrides": {"max_turns": 3}
+      "overrides": {"max_turns": 3, "endpoint": "http://127.0.0.1:9999/v1", "request_extra": {"fixture": ["~literal", true]}, "compact_extra": "{\"keep_recent\":4}"}
     },
     {
       "name": "container",
@@ -25,7 +25,7 @@
       "backend": {"ref": "bwrap", "opts": {"network": "isolated", "memory_mb": 256}}
     }
   ],
-  "objects": [{"name": "board", "handler": {"ref": "swarmidx:example/board@1.0.0", "kind": "code", "digest": "sha256:cccc"}, "config": {"capacity": 8, "labels": ["one", "two"]}}],
+  "objects": [{"name": "board", "handler": {"ref": "swarmidx:example/board@1.0.0", "kind": "code", "digest": "sha256:cccc", "opts": {"path": "/fixture/vendor/board", "mode": "require"}}, "config": {"capacity": 8, "labels": ["one", "two"]}}],
   "topology": [["terminal", "board"], ["board", "container"], ["isolated", "board"]],
   "options": {"timeout_ms": 10000, "nested": {"enabled": true}}
 }

@@ -15,7 +15,8 @@ WORK="$(mktemp -d)"
 ADD="$WORK/add.json"
 BUMP="$WORK/bump.json"
 MATERIALIZED="$WORK/materialized.json"
-trap 'rm -f "$ADD" "$BUMP" "$MATERIALIZED"; rmdir "$WORK"' EXIT
+SERIALIZED="$WORK/elixir-serialized.json"
+trap 'rm -f "$ADD" "$BUMP" "$MATERIALIZED" "$SERIALIZED"; rmdir "$WORK"' EXIT
 
 # Author two overlays with gsp itself.
 "$GSP" add swarmidx:jmlago/strict-reviewer@2.0.1 --as agent:reviewer \
@@ -26,7 +27,11 @@ compare() {
   "$GSP" materialize "$@" > "$MATERIALIZED"
   # No pipeline or stderr suppression: either implementation's failure fails
   # the harness. Test config prevents automatic .env imports into this check.
-  (cd "$GENSWARMS" && MIX_ENV=test mix run "$HERE/genswarms_fold.exs" "$MATERIALIZED" "$@")
+  (cd "$GENSWARMS" && MIX_ENV=test mix run "$HERE/genswarms_fold.exs" "$MATERIALIZED" "$SERIALIZED" "$@")
+  # Reparse and re-emit the Elixir-produced public JSON with the real Go CLI,
+  # then compare that entire parsed state with the original expected fold.
+  "$GSP" materialize "$SERIALIZED" > "$MATERIALIZED"
+  (cd "$GENSWARMS" && MIX_ENV=test mix run "$HERE/genswarms_fold.exs" "$MATERIALIZED" "$SERIALIZED" "$@")
 }
 
 compare "$SEED" "$ADD" "$BUMP"
