@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "kind": "swarm.overlay",
+  "swarm": "execution-conformance",
+  "apply": "incremental",
+  "events": [
+    {"seq": 1, "op": "update_config", "payload": {"target": "board", "config": {"capacity": 16, "labels": ["updated"]}}},
+    {"seq": 2, "op": "update_config", "payload": {"target": "terminal", "config": {"nested": {"enabled": true}}}},
+    {"seq": 3, "op": "set_options", "payload": {"options": {"timeout_ms": 20000, "nested": {"enabled": false}}}},
+    {"seq": 4, "op": "scale_agent_group", "payload": {"base_name": "terminal", "target_count": 2, "on_inflight": "drain"}}
+  ]
+}

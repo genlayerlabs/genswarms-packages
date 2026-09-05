@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 # Cross-impl conformance: gsp (Go) fold == genswarms (Elixir) fold, on the same
-# seed + overlays. The gsp IR is a second implementation of the genswarms IR; this
-# proves it does not diverge.
+# seed + overlays. The gsp IR is a second implementation of the genswarms IR;
+# compare complete parsed states for the checked fixtures.
 #
-# Requires: a genswarms checkout with mix, a built gsp, and jq.
+# Requires: a genswarms checkout with mix and a built gsp.
 #   GENSWARMS=/path/to/genswarms GSP=/path/to/gsp ./conformance/run.sh
 set -eu
 
@@ -11,28 +11,30 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 GENSWARMS="${GENSWARMS:-$HOME/docs/personal/genswarms}"
 GSP="${GSP:-gsp}"
 SEED="$HERE/../examples/research/seed.json"
-ADD="$(mktemp)"; BUMP="$(mktemp)"
-trap 'rm -f "$ADD" "$BUMP"' EXIT
+WORK="$(mktemp -d)"
+ADD="$WORK/add.json"
+BUMP="$WORK/bump.json"
+MATERIALIZED="$WORK/materialized.json"
+SERIALIZED="$WORK/elixir-serialized.json"
+trap 'rm -f "$ADD" "$BUMP" "$MATERIALIZED" "$SERIALIZED"; rmdir "$WORK"' EXIT
 
 # Author two overlays with gsp itself.
 "$GSP" add swarmidx:jmlago/strict-reviewer@2.0.1 --as agent:reviewer \
   --model openrouter:anthropic/claude --backend bwrap --swarm research -o "$ADD"
 "$GSP" bump researcher --field body --from sha256:aaaa --to sha256:bbbb -o "$BUMP"
 
-# Elixir (genswarms real IR).
-ELX="$(cd "$GENSWARMS" && mix run "$HERE/genswarms_fold.exs" "$SEED" "$ADD" "$BUMP" 2>/dev/null | grep -E '^(agents|researcher_body_digest|topology)=')"
+compare() {
+  "$GSP" materialize "$@" > "$MATERIALIZED"
+  # No pipeline or stderr suppression: either implementation's failure fails
+  # the harness. Test config prevents automatic .env imports into this check.
+  (cd "$GENSWARMS" && MIX_ENV=test mix run "$HERE/genswarms_fold.exs" "$MATERIALIZED" "$SERIALIZED" "$@")
+  # Reparse and re-emit the Elixir-produced public JSON with the real Go CLI,
+  # then compare that entire parsed state with the original expected fold.
+  "$GSP" materialize "$SERIALIZED" > "$MATERIALIZED"
+  (cd "$GENSWARMS" && MIX_ENV=test mix run "$HERE/genswarms_fold.exs" "$MATERIALIZED" "$SERIALIZED" "$@")
+}
 
-# Go (gsp).
-M="$("$GSP" materialize "$SEED" "$ADD" "$BUMP")"
-GO="$(printf 'agents=%s\nresearcher_body_digest=%s\ntopology=%s\n' \
-  "$(echo "$M" | jq -r '[.agents[].name]|join(",")')" \
-  "$(echo "$M" | jq -r '.agents[]|select(.name=="researcher").body.digest')" \
-  "$(echo "$M" | jq -r '[.topology[]|.[0]+">"+.[1]]|join(" ")')")"
-
-echo "--- elixir ---"; echo "$ELX"
-echo "--- go ---"; echo "$GO"
-if [ "$ELX" = "$GO" ]; then
-  echo "CONFORMANCE OK — gsp (Go) == genswarms (Elixir)"
-else
-  echo "CONFORMANCE FAILED — the two IR implementations diverge"; exit 1
-fi
+compare "$SEED" "$ADD" "$BUMP"
+compare "$SEED" "$HERE/../examples/research/overlay.json"
+compare "$HERE/../examples/execution/seed.json"
+compare "$HERE/../examples/execution/seed.json" "$HERE/../examples/execution/overlay.json"

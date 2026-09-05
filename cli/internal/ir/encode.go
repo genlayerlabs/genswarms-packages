@@ -20,6 +20,15 @@ func refToMap(r Ref) map[string]any {
 	if r.Host != "" {
 		m["host"] = r.Host
 	}
+	if r.Image != "" {
+		m["image"] = r.Image
+	}
+	if r.Client != nil {
+		m["client"] = r.Client
+	}
+	if r.optsPresent || len(r.Opts) > 0 {
+		m["opts"] = r.Opts
+	}
 	return m
 }
 

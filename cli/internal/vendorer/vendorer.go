@@ -2,17 +2,23 @@
 // resolve a swarmidx: ref against the notary, fetch the source, RECOMPUTE the
 // dirhash locally and require it to equal the notarized digest — trust the math,
 // not the server — then copy the package dir into the vendor root and record it
-// in vendor-lock.json. A mismatch writes nothing.
+// in vendor-lock.json. A failed package never overwrites an existing package.
 package vendorer
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/genlayerlabs/genswarms-packages/cli/internal/dirhash"
 )
@@ -38,22 +44,26 @@ type Resolved struct {
 	Deps   []string // exact-pin dep refs ("scope/name@version"), walked transitively
 }
 
-var refRe = regexp.MustCompile(`^swarmidx:([^/]+)/([^@]+)@(.+)$`)
-var ghRe = regexp.MustCompile(`^github://([^/]+)/([^@]+)@(.+)$`)
+// Local sources require explicit, independently selected host-path authority.
+// A notary signature does not grant permission to read arbitrary client files.
+type Options struct{ LocalSourceRoot string }
+
+var refRe = regexp.MustCompile(`^swarmidx:([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9._-]*)@([0-9A-Za-z][0-9A-Za-z.+-]*)$`)
+var ghRe = regexp.MustCompile(`^github://([A-Za-z0-9][A-Za-z0-9-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)@([A-Za-z0-9][A-Za-z0-9._/-]*)$`)
 
 // Vendor fetches, verifies and lands one ref. Returns the lock entry.
 // resolve is injected (the notary client); fetches go through git or the
 // local: scheme (tests).
-func Vendor(vendorRoot, ref string, resolve func(string) (Resolved, error)) (LockEntry, error) {
+func Vendor(vendorRoot, ref string, resolve func(string) (Resolved, error), opts Options) (LockEntry, error) {
 	res, err := resolve(ref)
 	if err != nil {
 		return LockEntry{}, fmt.Errorf("resolve %s: %w", ref, err)
 	}
-	return vendorResolved(vendorRoot, ref, res)
+	return vendorResolved(vendorRoot, ref, res, opts)
 }
 
 // vendorResolved verifies and lands one already-resolved ref.
-func vendorResolved(vendorRoot, ref string, res Resolved) (LockEntry, error) {
+func vendorResolved(vendorRoot, ref string, res Resolved, opts Options) (LockEntry, error) {
 	m := refRe.FindStringSubmatch(ref)
 	if m == nil {
 		return LockEntry{}, fmt.Errorf("not a swarmidx ref: %q", ref)
@@ -65,49 +75,74 @@ func vendorResolved(vendorRoot, ref string, res Resolved) (LockEntry, error) {
 	}
 
 	rel := fmt.Sprintf("%s__%s@%s", scope, name, version)
-	dest := filepath.Join(vendorRoot, rel)
+	dest, err := openVendorRoot(vendorRoot)
+	if err != nil {
+		return LockEntry{}, err
+	}
+	defer dest.Close()
 
 	// Already vendored? Re-hash the on-disk dir (cheap) instead of re-cloning.
-	if st, err := os.Stat(dest); err == nil && st.IsDir() {
-		if got, err := dirhash.HashDir(dest); err == nil && got == res.Digest {
-			return LockEntry{Ref: ref, Digest: res.Digest, Path: rel}, nil
+	if st, err := dest.Lstat(rel); err == nil {
+		if !st.IsDir() {
+			return LockEntry{}, fmt.Errorf("existing package is not a regular directory: %s", rel)
 		}
-		// Stale or tampered: rebuild from source below.
-		if err := os.RemoveAll(dest); err != nil {
+		existing, err := dest.OpenRoot(rel)
+		if err != nil {
 			return LockEntry{}, err
 		}
+		defer existing.Close()
+		if err := regularTree(existing); err != nil {
+			return LockEntry{}, err
+		}
+		if got, err := dirhash.HashFS(existing.FS()); err == nil && got == res.Digest {
+			return LockEntry{Ref: ref, Digest: res.Digest, Path: rel}, nil
+		}
+		return LockEntry{}, fmt.Errorf("existing package differs from signed digest; preserved without changes: %s", rel)
+	} else if !os.IsNotExist(err) {
+		return LockEntry{}, err
 	}
 
-	root, cleanup, err := checkout(res.Source)
+	root, cleanup, err := checkout(res.Source, opts)
 	if err != nil {
 		return LockEntry{}, fmt.Errorf("fetch %s: %w", res.Source, err)
 	}
 	defer cleanup()
 
-	pkgDir, err := safeJoin(root, res.Dir)
+	pkgDir, err := packageRoot(root, res.Dir)
 	if err != nil {
 		return LockEntry{}, err
 	}
+	defer pkgDir.Close()
 
-	got, err := dirhash.HashDir(pkgDir)
+	stageName := ".gsp-stage-" + rand.Text()
+	if err := dest.Mkdir(stageName, 0o700); err != nil {
+		return LockEntry{}, err
+	}
+	defer dest.RemoveAll(stageName) // Only this call's private staging directory.
+	stage, err := dest.OpenRoot(stageName)
 	if err != nil {
-		return LockEntry{}, fmt.Errorf("hash %s: %w", ref, err)
+		return LockEntry{}, err
+	}
+	if err := copyDir(pkgDir, stage); err != nil {
+		stage.Close()
+		return LockEntry{}, err
+	}
+	got, hashErr := dirhash.HashFS(stage.FS())
+	if hashErr == nil && got == res.Digest {
+		hashErr = stage.Chmod(".", 0o755)
+	}
+	stage.Close()
+	if hashErr != nil {
+		return LockEntry{}, fmt.Errorf("hash %s: %w", ref, hashErr)
 	}
 	if got != res.Digest {
-		return LockEntry{}, fmt.Errorf(
-			"digest mismatch for %s: notarized %s, source hashes to %s — refusing to vendor",
-			ref, res.Digest, got)
+		return LockEntry{}, fmt.Errorf("digest mismatch for %s; refusing to vendor", ref)
 	}
-
-	if err := copyDir(pkgDir, dest); err != nil {
-		os.RemoveAll(dest)
+	if _, err := dest.Lstat(rel); !os.IsNotExist(err) {
+		return LockEntry{}, fmt.Errorf("package destination appeared during verification: %s", rel)
+	}
+	if err := dest.Rename(stageName, rel); err != nil {
 		return LockEntry{}, err
-	}
-	// Paranoia: what we WROTE must hash back too (a copy bug must not
-	// silently break the attestation chain).
-	if landed, err := dirhash.HashDir(dest); err != nil || landed != res.Digest {
-		os.RemoveAll(dest)
-		return LockEntry{}, fmt.Errorf("vendored copy of %s does not re-verify", ref)
 	}
 
 	return LockEntry{Ref: ref, Digest: res.Digest, Path: rel}, nil
@@ -115,55 +150,137 @@ func vendorResolved(vendorRoot, ref string, res Resolved) (LockEntry, error) {
 
 // WriteLock persists vendor-lock.json at the vendor root (sorted, stable).
 func WriteLock(vendorRoot string, entries []LockEntry) error {
-	if err := os.MkdirAll(vendorRoot, 0o755); err != nil {
+	root, err := openVendorRoot(vendorRoot)
+	if err != nil {
 		return err
 	}
+	defer root.Close()
+	if st, err := root.Lstat("vendor-lock.json"); err == nil && !st.Mode().IsRegular() {
+		return fmt.Errorf("vendor lock is not a regular file; preserved without changes")
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	entries = append([]LockEntry{}, entries...)
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Ref < entries[j].Ref })
 	data, err := json.MarshalIndent(Lock{Entries: entries}, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(vendorRoot, "vendor-lock.json"), append(data, '\n'), 0o644)
+	stage := ".gsp-lock-" + rand.Text()
+	f, err := root.OpenFile(stage, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer root.Remove(stage)
+	_, err = f.Write(append(data, '\n'))
+	if err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	// Rename replaces the directory entry, never writes through a link/hardlink.
+	return root.Rename(stage, "vendor-lock.json")
 }
 
-func checkout(source string) (root string, cleanup func(), err error) {
+func checkout(source string, opts Options) (root *os.Root, cleanup func(), err error) {
 	if strings.HasPrefix(source, "local:") {
-		return strings.TrimPrefix(source, "local:"), func() {}, nil
+		if opts.LocalSourceRoot == "" {
+			return nil, nil, fmt.Errorf("local source requires --local-source-root")
+		}
+		path := strings.TrimPrefix(source, "local:")
+		if !filepath.IsAbs(path) {
+			return nil, nil, fmt.Errorf("local source must be absolute")
+		}
+		allowed, err := filepath.Abs(opts.LocalSourceRoot)
+		if err != nil {
+			return nil, nil, err
+		}
+		rel, err := filepath.Rel(allowed, path)
+		if err != nil || !filepath.IsLocal(rel) {
+			return nil, nil, fmt.Errorf("local source is outside approved root")
+		}
+		base, err := os.OpenRoot(allowed)
+		if err != nil {
+			return nil, nil, err
+		}
+		defer base.Close()
+		root, err := base.OpenRoot(rel)
+		if err != nil {
+			return nil, nil, err
+		}
+		return root, func() { root.Close() }, nil
 	}
 	if m := ghRe.FindStringSubmatch(source); m != nil {
 		owner, repo, tag := m[1], m[2], m[3]
+		if strings.Contains(tag, "..") || strings.Contains(tag, "//") || strings.HasSuffix(tag, "/") || strings.HasSuffix(tag, ".") || strings.HasSuffix(tag, ".lock") {
+			return nil, nil, fmt.Errorf("invalid Git source ref")
+		}
 		tmp, err := os.MkdirTemp("", "gsp-vendor-*")
 		if err != nil {
-			return "", nil, err
+			return nil, nil, err
 		}
 		url := fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
-		cmd := exec.Command("git", "clone", "--depth", "1", "--branch", tag, url, tmp)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		cmd := gitCommand(ctx, tmp, url, tag)
+		if err := cmd.Run(); err != nil {
 			os.RemoveAll(tmp)
-			return "", nil, fmt.Errorf("git clone %s@%s: %s", repo, tag, firstLine(out))
+			return nil, nil, fmt.Errorf("Git source fetch failed")
 		}
-		return tmp, func() { os.RemoveAll(tmp) }, nil
+		root, err := os.OpenRoot(tmp)
+		if err != nil {
+			os.RemoveAll(tmp)
+			return nil, nil, err
+		}
+		return root, func() { root.Close(); os.RemoveAll(tmp) }, nil
 	}
-	return "", nil, fmt.Errorf("unsupported source scheme: %q", source)
+	return nil, nil, fmt.Errorf("unsupported source scheme: %q", source)
 }
 
-func safeJoin(base, rel string) (string, error) {
-	if rel == "" || rel == "." {
-		return base, nil
+func gitCommand(ctx context.Context, tmp, url, tag string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "git", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
+		"-c", "http.followRedirects=false", "-c", "credential.helper=", "-c", "core.hooksPath="+os.DevNull,
+		"-c", "init.templateDir=", "clone", "--depth", "1", "--branch", tag, "--", url, tmp)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + tmp, "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_TERMINAL_PROMPT=0", "GIT_ALLOW_PROTOCOL=https"}
+	for _, key := range []string{"SSL_CERT_FILE", "SSL_CERT_DIR", "SYSTEMROOT"} {
+		if value := os.Getenv(key); value != "" {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
 	}
-	if strings.HasPrefix(rel, "/") || strings.Contains(rel, "..") {
-		return "", fmt.Errorf("unsafe package dir: %q", rel)
+	return cmd
+}
+
+func packageRoot(base *os.Root, rel string) (*os.Root, error) {
+	if !fs.ValidPath(rel) || strings.ContainsAny(rel, `\:`) {
+		return nil, fmt.Errorf("unsafe package dir")
 	}
-	return filepath.Join(base, filepath.FromSlash(rel)), nil
+	part := ""
+	for _, name := range strings.Split(rel, "/") {
+		if name == ".git" {
+			return nil, fmt.Errorf("package dir cannot be VCS internals")
+		}
+		part = filepath.Join(part, name)
+		st, err := base.Lstat(part)
+		if err != nil {
+			return nil, err
+		}
+		if !st.IsDir() {
+			return nil, fmt.Errorf("package dir contains a non-directory or symlink")
+		}
+	}
+	return base.OpenRoot(filepath.FromSlash(rel))
 }
 
 // copyDir copies files recursively, skipping .git (VCS internals are not
 // package content — the dirhash skips them for the same reason).
-func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, p)
+func copyDir(src, dst *os.Root) error {
+	return fs.WalkDir(src.FS(), ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -171,14 +288,73 @@ func copyDir(src, dst string) error {
 			if d.Name() == ".git" {
 				return filepath.SkipDir
 			}
-			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
+			return dst.MkdirAll(filepath.FromSlash(p), 0o755)
 		}
-		data, err := os.ReadFile(p)
+		// DirEntry.Info can reopen its display path after the directory moves.
+		// Keep metadata reads anchored to the same root as content reads.
+		info, err := src.Lstat(filepath.FromSlash(p))
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(dst, rel), data, 0o644)
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("package contains symlink or special file: %s", p)
+		}
+		in, err := src.Open(filepath.FromSlash(p))
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		info, err = in.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("package file changed type during copy")
+		}
+		out, err := dst.OpenFile(filepath.FromSlash(p), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(out, in)
+		closeErr := out.Close()
+		if err != nil {
+			return err
+		}
+		return closeErr
 	})
+}
+
+func regularTree(root *os.Root) error {
+	return fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		info, err := root.Lstat(filepath.FromSlash(p))
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("package contains symlink or special file: %s", p)
+		}
+		return nil
+	})
+}
+
+func openVendorRoot(path string) (*os.Root, error) {
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return nil, err
+	}
+	st, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !st.IsDir() {
+		return nil, fmt.Errorf("vendor root must be a directory, not a symlink")
+	}
+	return os.OpenRoot(path)
 }
 
 func firstLine(out []byte) string {
@@ -197,7 +373,11 @@ func firstLine(out []byte) string {
 // swarmidx: refs. The registry guarantees the dep graph is a DAG (a dep must
 // be notarized before its dependent), so the seen-set is enough; the depth cap
 // is a corrupted-registry backstop, not a design limit.
-func VendorAll(vendorRoot string, refs []string, resolve func(string) (Resolved, error)) ([]LockEntry, error) {
+func VendorAll(vendorRoot string, refs []string, resolve func(string) (Resolved, error), opts Options) ([]LockEntry, error) {
+	return installBatch(vendorRoot, refs, resolve, opts)
+}
+
+func vendorGraph(refs []string, resolve func(string) (Resolved, error), land func(string, Resolved) (LockEntry, error)) ([]LockEntry, error) {
 	const maxDepth = 32
 
 	seen := map[string]bool{}
@@ -219,7 +399,7 @@ func VendorAll(vendorRoot string, refs []string, resolve func(string) (Resolved,
 			if err != nil {
 				return nil, fmt.Errorf("resolve %s: %w", ref, err)
 			}
-			entry, err := vendorResolved(vendorRoot, ref, res)
+			entry, err := land(ref, res)
 			if err != nil {
 				return nil, err
 			}

@@ -5,12 +5,60 @@ policies, handlers and whole swarms — content-addressed and provable. You auth
 packages offline, publish them to a notary, and resolve or verify any of them by a
 stable reference like `swarmidx:scope/name@0.1.0`.
 
-The guarantee is **"trust the math, not the server."** Every published release is a
+Every published release is a
 `name → digest` mapping signed into an append-only **transparency log**. `gsp log`
 fetches that log and re-verifies it entirely on your machine — it recomputes the
 SHA-256 hash chain and checks every Ed25519 signature. The notary never holds your
-bytes; those stay in your git. It only records and signs the mapping, and you can
-prove it never lied.
+bytes; those stay in your git. It only records and signs the mapping.
+
+Use `gsp log --public-key HEX` with an independently obtained Ed25519 public key
+to authenticate the returned chain. Without it, the command uses the key served
+by the same endpoint: this checks internal consistency, not the server's identity.
+Verification follows every returned page from genesis; `--since N` only filters
+display, not verification. Malformed responses and non-progressing pages fail
+closed, with a limit of 100,000 entries / 64 MiB of encoded log data.
+Even with a pinned key, a signed prefix does not prove freshness or rule out
+split views; that needs an independently trusted checkpoint or witness.
+`resolve`, `materialize --resolve` and `vendor` **require** `--public-key HEX` or
+`SWARMIDX_PUBLIC_KEY` (an independently trusted key; not a secret). They derive
+release metadata directly from one verified log snapshot, including signed
+withdrawals and exact-pin dependencies. They do not consult `/v1/resolve`.
+Unsigned card fields such as `module` are excluded from resolved JSON; handler
+entry points must come from `swarm-object.json` inside verified package bytes.
+Materialization and vendoring of IR check existing digest pins and package slot
+roles against the signed releases, rather than replacing mismatching pins.
+Offline `materialize` without `--resolve` remains network/key-free.
+
+Vendoring rejects traversal refs, symbolic-link package paths, symlink/special
+file contents and linked destinations. File access is confined to opened
+directory handles. New packages are copied into private staging, hashed there,
+then renamed into place; existing packages are re-verified but **never repaired
+or overwritten automatically**. If you edited a vendored copy, keep it and choose
+a fresh vendor directory to fetch a clean copy. `vendor-lock.json` is written
+through a temporary file and renamed, never truncated through a link.
+
+`local:` sources are disabled by default even when signed. For a trusted local
+fixture, grant access explicitly with a narrow directory:
+
+```sh
+gsp vendor --local-source-root /path/to/approved/sources --dir vendor/swarmidx swarmidx:scope/name@1
+```
+
+This permits local source reads only beneath that directory; it is independent
+of the notary key. GitHub sources do not require this flag. Git transport uses
+HTTPS only, disables redirects/hooks/templates and inherited Git configuration,
+and has a 120-second deadline.
+
+The CLI stages the complete dependency batch before installing new entries,
+serializes writers with a directory lease, and commits the merged lock last.
+A failed preparation leaves existing files and the lock unchanged. Interrupted
+writers leave a journal and block installation; use
+`gsp vendor --dir DIR --recover` after the writer exits. Recovery refuses
+live/unknown writers and preserves edited files; unchanged, uncommitted new
+entries are rolled back. Process-liveness checks are OS-dependent and recovery
+fails closed when unavailable. Tests establish process-exit recovery, not
+power-cut durability. Readers must treat the lock as the commit boundary and
+avoid installations with a pending journal.
 
 ## Install
 
@@ -62,6 +110,8 @@ under Tokens). The hosted notary is `https://swarmidx.ygr.ai`:
 ```sh
 export SWARMIDX_ENDPOINT=https://swarmidx.ygr.ai
 export SWARMIDX_TOKEN=gsp_live_…
+# Set SWARMIDX_PUBLIC_KEY to the notary's 64-hex public key, obtained
+# independently from its operator. Do not bootstrap trust from /v1/publickey.
 
 gsp publish swarmidx.json --version 0.1.0 --source github://owner/repo@main
 gsp resolve swarmidx:you/web-researcher@0.1.0
@@ -79,14 +129,43 @@ things follow:
 Versions are immutable — republishing the same `scope/name@version` is rejected;
 bump the version instead.
 
+### Local cross-repository verification
+
+With a built `gsp` and Python dependencies from `swarmidx/backend/requirements.txt`:
+
+```sh
+python conformance/notary.py --swarmidx /path/to/swarmidx --gsp /absolute/path/to/gsp
+```
+
+This runs the actual CLI against Django over loopback: authenticated publishing,
+Python signing, verified resolution, IR materialization and local vendoring.
+It checks dependency hashes, signed withdrawals, altered index metadata,
+wrong keys, tampered logs and mismatching IR pins/kinds. It uses public fixture
+keys and a fresh in-memory test DB, never an existing DB or hosted notary.
+It also checks explicit local-source authority and preservation of an edited
+vendored package and its lock. Add `--genswarms /path/to/genswarms` to execute
+the verified body, policy and handler in Elixir, remove the IR file, and restore
+the swarm from SQLite in another BEAM. No external provider is involved.
+Swarmidx separately tests concurrent log appends against isolated PostgreSQL;
+the Go suite tests writer exclusion, batch failure and process-exit recovery.
+Recovery tests cover exits both before and after lock commit, including operator
+edits that must remain intact. The CLI CI suite runs with the Go race detector.
+
 ## How it fits GenSwarms
 
 The package IR (`swarm.state` / `swarm.overlay`) is the contract with
 [genswarms](https://github.com/genlayerlabs/genswarms), the runtime that actuates
 overlays on a live swarm. `gsp` authors and validates that IR offline and produces
 overlays genswarms consumes; it never touches a running swarm itself.
-`conformance/run.sh` folds the same inputs through both `gsp` (Go) and genswarms
-(Elixir) and asserts they agree, so the two implementations can't silently drift.
+`conformance/run.sh` folds fixtures through both `gsp` (Go) and genswarms
+(Elixir) and compares every parsed state field, including backend options,
+images, TUI clients, model policies, object configuration and swarm options.
+It also serializes the folded state with Elixir's `State.to_map`, reparses and
+re-emits that JSON with Go, and compares the entire result again. The four
+fixture runs cover provider overrides and package-handler loader metadata as
+well as the existing execution fields. It checks semantic equality, not JSON
+byte identity; omitted defaults and whitespace may differ. This is an offline data-contract check, not proof of
+live execution or database restart behavior.
 
 See [`gsp-design-doc.md`](gsp-design-doc.md) for the full design.
 
