@@ -1,6 +1,7 @@
 // Package client talks to a swarmidx notary over HTTP: resolve a ref → digest,
 // publish a release (token-authenticated), and fetch + verify the transparency
-// log (Ed25519) client-side — so the CLI trusts the math, not the server.
+// log (Ed25519) client-side. Authenticity requires a trusted public key;
+// signatures alone do not prove freshness or absence of split views.
 package client
 
 import (
@@ -15,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 type Client struct {
@@ -61,7 +63,10 @@ func (c *Client) Resolve(ref string) (map[string]any, error) {
 
 func (c *Client) Publish(r Release) (map[string]any, error) {
 	body, _ := json.Marshal(r)
-	req, _ := http.NewRequest("POST", c.Endpoint+"/v1/publish", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", c.Endpoint+"/v1/publish", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("invalid notary URL")
+	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
@@ -87,12 +92,48 @@ func (c *Client) Log(since int) ([]LogEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	if _, ok := out["entries"].([]any); !ok {
+		return nil, fmt.Errorf("invalid log response: entries must be an array")
+	}
 	b, _ := json.Marshal(out["entries"])
 	var entries []LogEntry
-	if err := json.Unmarshal(b, &entries); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.UseNumber()
+	if err := decoder.Decode(&entries); err != nil {
 		return nil, err
 	}
 	return entries, nil
+}
+
+// FullLog fetches from genesis until the server returns an empty page. A valid
+// prefix can still be withheld by the server; this is not a freshness proof.
+func (c *Client) FullLog() ([]LogEntry, error) {
+	var entries []LogEntry
+	since, size := 0, 0
+	for {
+		page, err := c.Log(since)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			return entries, nil
+		}
+		for _, e := range page {
+			if e.Seq <= int64(since) || int64(int(e.Seq)) != e.Seq {
+				return nil, fmt.Errorf("invalid log pagination sequence")
+			}
+			since = int(e.Seq)
+		}
+		encoded, err := json.Marshal(page)
+		if err != nil {
+			return nil, fmt.Errorf("invalid log page")
+		}
+		size += len(encoded)
+		if len(entries)+len(page) > 100000 || size > 64<<20 {
+			return nil, fmt.Errorf("log exceeds verification limit (100000 entries / 64 MiB)")
+		}
+		entries = append(entries, page...)
+	}
 }
 
 // VerifyChain recomputes the hash chain and verifies every Ed25519 signature.
@@ -100,9 +141,13 @@ func (c *Client) Log(since int) ([]LogEntry, error) {
 // bytes (the server signs bytes.fromhex(entry_hash)), and canonical() must match
 // the server's json.dumps(sort_keys=True, separators=(",",":")).
 func VerifyChain(entries []LogEntry, pub ed25519.PublicKey) (bool, int) {
+	if len(pub) != ed25519.PublicKeySize {
+		return false, 0
+	}
 	prev := ""
+	var lastSeq int64
 	for i, e := range entries {
-		if e.PrevHash != prev {
+		if e.PrevHash != prev || e.Seq <= lastSeq || e.Payload == nil {
 			return false, i
 		}
 		cb, err := canonical(e.Payload)
@@ -125,13 +170,15 @@ func VerifyChain(entries []LogEntry, pub ed25519.PublicKey) (bool, int) {
 			return false, i
 		}
 		prev = e.EntryHash
+		lastSeq = e.Seq
 	}
 	return true, len(entries)
 }
 
 // canonical mirrors json.dumps(payload, sort_keys=True, separators=(",",":")):
 // Go marshals map keys sorted and compact; SetEscapeHTML(false) matches Python's
-// non-escaping of <, >, &.
+// non-escaping of <, >, &. Python's default ensure_ascii=True additionally
+// escapes Unicode (including UTF-16 surrogate pairs for non-BMP characters).
 func canonical(payload map[string]any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -139,11 +186,25 @@ func canonical(payload map[string]any) ([]byte, error) {
 	if err := enc.Encode(payload); err != nil {
 		return nil, err
 	}
-	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+	var ascii bytes.Buffer
+	for _, r := range string(bytes.TrimRight(buf.Bytes(), "\n")) {
+		if r < 127 {
+			ascii.WriteByte(byte(r))
+		} else if r <= 0xffff {
+			fmt.Fprintf(&ascii, `\u%04x`, r)
+		} else {
+			hi, lo := utf16.EncodeRune(r)
+			fmt.Fprintf(&ascii, `\u%04x\u%04x`, hi, lo)
+		}
+	}
+	return ascii.Bytes(), nil
 }
 
 func (c *Client) getJSON(u string) (map[string]any, error) {
-	req, _ := http.NewRequest("GET", u, nil)
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid notary URL")
+	}
 	return c.do(req)
 }
 
@@ -153,17 +214,27 @@ func (c *Client) do(req *http.Request) (map[string]any, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	var out map[string]any
-	if len(data) > 0 {
-		_ = json.Unmarshal(data, &out)
+	const maxResponseBytes = 4 << 20
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read notary response")
 	}
-	if resp.StatusCode >= 400 {
-		msg, _ := out["error"].(string)
-		if msg == "" {
-			msg = strings.TrimSpace(string(data))
-		}
-		return out, fmt.Errorf("%s: %s", resp.Status, msg)
+	if len(data) > maxResponseBytes {
+		return nil, fmt.Errorf("notary response exceeds 4 MiB")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Do not reflect opaque server response bodies into CLI logs.
+		return nil, fmt.Errorf("notary returned HTTP %d", resp.StatusCode)
+	}
+	var out map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&out); err != nil || out == nil {
+		return nil, fmt.Errorf("invalid JSON object from notary")
+	}
+	var trailing any
+	if decoder.Decode(&trailing) != io.EOF {
+		return nil, fmt.Errorf("trailing data in notary response")
 	}
 	return out, nil
 }

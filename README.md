@@ -5,12 +5,23 @@ policies, handlers and whole swarms — content-addressed and provable. You auth
 packages offline, publish them to a notary, and resolve or verify any of them by a
 stable reference like `swarmidx:scope/name@0.1.0`.
 
-The guarantee is **"trust the math, not the server."** Every published release is a
+Every published release is a
 `name → digest` mapping signed into an append-only **transparency log**. `gsp log`
 fetches that log and re-verifies it entirely on your machine — it recomputes the
 SHA-256 hash chain and checks every Ed25519 signature. The notary never holds your
-bytes; those stay in your git. It only records and signs the mapping, and you can
-prove it never lied.
+bytes; those stay in your git. It only records and signs the mapping.
+
+Use `gsp log --public-key HEX` with an independently obtained Ed25519 public key
+to authenticate the returned chain. Without it, the command uses the key served
+by the same endpoint: this checks internal consistency, not the server's identity.
+Verification follows every returned page from genesis; `--since N` only filters
+display, not verification. Malformed responses and non-progressing pages fail
+closed, with a limit of 100,000 entries / 64 MiB of encoded log data.
+Even with a pinned key, a signed prefix does not prove freshness or rule out
+split views; that needs an independently trusted checkpoint or witness.
+`resolve`, `materialize --resolve` and `vendor` do not currently authenticate
+their resolution responses against this log. Local dirhash verification checks
+bytes against the resolved digest, not the authenticity of that digest.
 
 ## Install
 

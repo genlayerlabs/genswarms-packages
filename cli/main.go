@@ -4,6 +4,8 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -34,7 +36,7 @@ authoring (emit a one-event swarm.overlay to stdout or -o file):
 notary client (talks to swarmidx; --endpoint / $SWARMIDX_ENDPOINT, --token / $SWARMIDX_TOKEN):
   gsp publish <swarmidx.json> --version V [--source S]   dirhash each package dir and publish it
   gsp resolve <ref>                                      resolve swarmidx:scope/name@version → digest
-  gsp log [--since N]                                    fetch + verify the transparency log (Ed25519)
+  gsp log [--since N] [--public-key HEX]                 verify all pages; --since filters display only
   gsp vendor <ref | ir.json>… [--dir D]                  fetch each ref, RE-VERIFY its dirhash locally,
                                                          land it under D (default vendor/swarmidx) + lock
 `
@@ -291,26 +293,44 @@ func cmdLog(args []string) error {
 	fs := flag.NewFlagSet("log", flag.ContinueOnError)
 	endpoint := endpointFlag(fs)
 	since := fs.Int("since", 0, "only entries with seq > since")
+	trustedKey := fs.String("public-key", "", "trusted Ed25519 public key (64 hex characters, obtained independently)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	c := client.New(*endpoint, "")
-	pub, err := c.PublicKey()
-	if err != nil {
-		return err
+	if *since < 0 || fs.NArg() != 0 {
+		return fmt.Errorf("usage: gsp log [--since N >= 0] [--public-key HEX]")
 	}
-	entries, err := c.Log(*since)
+	c := client.New(*endpoint, "")
+	var pub ed25519.PublicKey
+	keySource := "server-advertised key (not independently authenticated)"
+	if *trustedKey != "" {
+		raw, err := hex.DecodeString(*trustedKey)
+		if err != nil || len(raw) != ed25519.PublicKeySize {
+			return fmt.Errorf("public key must be 64 hex characters")
+		}
+		pub = ed25519.PublicKey(raw)
+		keySource = "supplied public key"
+	} else {
+		var err error
+		pub, err = c.PublicKey()
+		if err != nil {
+			return err
+		}
+	}
+	entries, err := c.FullLog()
 	if err != nil {
 		return err
 	}
 	ok, n := client.VerifyChain(entries, pub)
-	for _, e := range entries {
-		fmt.Printf("#%d  %v\n", e.Seq, e.Payload["ref"])
-	}
 	if !ok {
 		return fmt.Errorf("transparency log FAILED verification at entry index %d", n)
 	}
-	fmt.Printf("log verified: %d entries, hash chain + Ed25519 signatures OK\n", n)
+	for _, e := range entries {
+		if e.Seq > int64(*since) {
+			fmt.Printf("#%d  %v\n", e.Seq, e.Payload["ref"])
+		}
+	}
+	fmt.Printf("log verified: %d returned entries, hash chain + Ed25519 signatures OK against %s; freshness not proven\n", n, keySource)
 	return nil
 }
 
