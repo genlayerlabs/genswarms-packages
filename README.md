@@ -45,10 +45,20 @@ gsp vendor --local-source-root /path/to/approved/sources --dir vendor/swarmidx s
 ```
 
 This permits local source reads only beneath that directory; it is independent
-of the notary key. GitHub sources do not require this flag. These are per-package
-staging guarantees, not a transaction over an entire dependency batch: earlier
-successful packages can remain if a later package fails, and concurrent-writer
-coordination and power-loss durability are not yet guaranteed.
+of the notary key. GitHub sources do not require this flag. Git transport uses
+HTTPS only, disables redirects/hooks/templates and inherited Git configuration,
+and has a 120-second deadline.
+
+The CLI stages the complete dependency batch before installing new entries,
+serializes writers with a directory lease, and commits the merged lock last.
+A failed preparation leaves existing files and the lock unchanged. Interrupted
+writers leave a journal and block installation; use
+`gsp vendor --dir DIR --recover` after the writer exits. Recovery refuses
+live/unknown writers and preserves edited files; unchanged, uncommitted new
+entries are rolled back. Process-liveness checks are OS-dependent and recovery
+fails closed when unavailable. Tests establish process-exit recovery, not
+power-cut durability. Readers must treat the lock as the commit boundary and
+avoid installations with a pending journal.
 
 ## Install
 
@@ -133,9 +143,13 @@ It checks dependency hashes, signed withdrawals, altered index metadata,
 wrong keys, tampered logs and mismatching IR pins/kinds. It uses public fixture
 keys and a fresh in-memory test DB, never an existing DB or hosted notary.
 It also checks explicit local-source authority and preservation of an edited
-vendored package and its lock. It does not test PostgreSQL append concurrency,
-remote git transport or BEAM loading/restart. Multi-package transactionality,
-concurrent-writer coordination and crash durability remain separate work.
+vendored package and its lock. Add `--genswarms /path/to/genswarms` to execute
+the verified body, policy and handler in Elixir, remove the IR file, and restore
+the swarm from SQLite in another BEAM. No external provider is involved.
+Swarmidx separately tests concurrent log appends against isolated PostgreSQL;
+the Go suite tests writer exclusion, batch failure and process-exit recovery.
+Recovery tests cover exits both before and after lock commit, including operator
+edits that must remain intact. The CLI CI suite runs with the Go race detector.
 
 ## How it fits GenSwarms
 

@@ -20,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--swarmidx", required=True, type=Path)
     parser.add_argument("--gsp", required=True, type=Path)
+    parser.add_argument("--genswarms", type=Path, help="also verify package execution and database-only restart")
     args = parser.parse_args()
     binary = args.gsp.resolve(strict=True)
     sys.path.insert(0, str(args.swarmidx.resolve(strict=True) / "backend"))
@@ -51,6 +52,9 @@ def main():
             temporary = tempfile.TemporaryDirectory(prefix="gsp-notary-conformance-")
             self.addCleanup(temporary.cleanup)
             self.root = Path(temporary.name)
+            local_source = self.settings(SWARMIDX_LOCAL_SOURCE_ROOT=str(self.root))
+            local_source.enable()
+            self.addCleanup(local_source.disable)
             self.user = get_user_model().objects.create_user(username="fixture")
             self.scope = current_scope(self.user)
             _, self.token = mint_publish_token(self.scope, "local-conformance")
@@ -63,6 +67,21 @@ def main():
                 path = self.root / directory
                 path.mkdir()
                 (path / "fixture.txt").write_text(f"{kind} fixture\n", encoding="utf-8")
+                if name == "body":
+                    (path / "body.md").write_text("Verified café {{agent_name}}", encoding="utf-8")
+                elif name == "policy":
+                    (path / "policy.json").write_text('{"fixture":"notary-policy"}')
+                elif name == "handler":
+                    (path / "swarm-object.json").write_text(json.dumps({"module": "NotaryRuntimeFixture", "files": ["object.ex"]}))
+                    (path / "object.ex").write_text('''defmodule NotaryRuntimeFixture do
+  def init(config) do
+    File.write!(config["receipt"], "verified-handler")
+    {:ok, config}
+  end
+  def handle_message(_, _, state), do: {:noreply, state}
+  def interface, do: %{}
+end
+''')
                 package = {"name": name, "kind": kind, "dir": directory}
                 if name == "body":
                     package["deps"] = ["fixture/policy@1"]
@@ -91,6 +110,57 @@ def main():
             else:
                 self.assertNotEqual(result.returncode, 0, "unexpected success")
             return result
+
+        @unittest.skipUnless(args.genswarms, "pass --genswarms for package-to-runtime/database conformance")
+        def test_verified_packages_execute_and_restore_without_seed_file(self):
+            refs = ["swarmidx:fixture/" + name + "@1" for name in ("body", "policy", "handler")]
+            self.gsp("vendor", "--dir", "vendor", *refs)
+            entries = json.loads((self.root / "vendor/vendor-lock.json").read_text())["entries"]
+            def slot(name, kind):
+                entry = next(e for e in entries if e["ref"] == "swarmidx:fixture/" + name + "@1")
+                return {"ref": entry["ref"], "digest": entry["digest"], "kind": kind,
+                        "opts": {"path": str(self.root / "vendor" / entry["path"])}}
+            handler = slot("handler", "code")
+            handler["opts"]["mode"] = "require"
+            seed = {"v": 1, "kind": "swarm.state", "name": "notary-runtime", "phase": "desired",
+                    "agents": [{"name": "worker", "body": slot("body", "data"), "model": {"policy": slot("policy", "data")},
+                                "backend": {"ref": "mock"}, "overrides": {}, "config": {}}],
+                    "objects": [{"name": "board", "handler": handler, "config": {"receipt": str(self.root / "receipt")}}],
+                    "topology": [["worker", "board"]], "options": {}}
+            seed_path = self.root / "native.json"
+            seed_path.write_text(json.dumps(seed))
+            self.gsp("verify", str(seed_path))
+            script = r'''
+            [root, phase] = System.argv()
+            Application.put_env(:genswarms, :db_path, Path.join(root, "runtime.db"))
+            Application.put_env(:genswarms, :events_dir, Path.join(root, "events"))
+            Application.put_env(:genswarms, :swarm_data_dir, Path.join(root, "runtime"))
+            Application.put_env(:genswarms, :load_dotenv, false)
+            {:ok, _} = Application.ensure_all_started(:genswarms)
+            result = if phase == "write" do
+              root |> Path.join("native.json") |> File.read!() |> Jason.decode!() |> Genswarms.start_swarm_from_ir()
+            else
+              Genswarms.restore_swarm("notary-runtime")
+            end
+            {:ok, "notary-runtime"} = result
+            "verified-handler" = File.read!(Path.join(root, "receipt"))
+            [{pid, _}] = Registry.lookup(Genswarms.AgentRegistry, {"notary-runtime", :worker})
+            state = :sys.get_state(pid)
+            %{"policy_ir" => %{"fixture" => "notary-policy"}} = state.backend_config.request_extra
+            "Verified café worker" = File.read!(Path.join(state.skills_dir, "package-body.md"))
+            {:ok, nil} = Genswarms.stop_swarm("notary-runtime")
+            IO.puts("VERIFIED_RUNTIME_OK")
+            '''
+            for phase in ("write", "restore"):
+                result = subprocess.run(["mix", "run", "--no-start", "-e", script, "--", str(self.root), phase],
+                    cwd=args.genswarms, env={"PATH": os.environ.get("PATH", ""), "HOME": str(self.root), "MIX_ENV": "test", "LANG": "C.UTF-8",
+                        "MIX_HOME": os.environ.get("MIX_HOME", str(Path.home() / ".mix"))},
+                    capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("VERIFIED_RUNTIME_OK", result.stdout)
+                if phase == "write":
+                    seed_path.unlink()
+                    (self.root / "receipt").unlink()
 
         def seed(self, digest=None, body_ref="swarmidx:fixture/body@1"):
             body = {"ref": body_ref, "kind": "data"}

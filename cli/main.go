@@ -524,10 +524,17 @@ func cmdVendor(args []string) error {
 	endpoint := endpointFlag(fs)
 	trustedKey := publicKeyFlag(fs)
 	localRoot := fs.String("local-source-root", "", "explicitly approved directory for local: source reads (default: disabled)")
+	recoverPending := fs.Bool("recover", false, "recover a verified interrupted installation (requires a dead writer)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	items := fs.Args()
+	if *recoverPending {
+		if len(items) != 0 {
+			return fmt.Errorf("recovery does not accept package arguments")
+		}
+		return vendorer.Recover(*dir)
+	}
 	if len(items) == 0 {
 		return fmt.Errorf("usage: gsp vendor [--dir DIR] [--public-key HEX] <swarmidx:ref | materialized-ir.json>…")
 	}
@@ -587,5 +594,5 @@ func cmdVendor(args []string) error {
 	for _, entry := range entries {
 		fmt.Printf("vendored %s  %s  -> %s\n", entry.Ref, entry.Digest, entry.Path)
 	}
-	return vendorer.WriteLock(*dir, entries)
+	return nil // VendorAll commits the complete lock under its writer lease.
 }

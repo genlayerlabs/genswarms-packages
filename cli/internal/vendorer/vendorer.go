@@ -6,6 +6,7 @@
 package vendorer
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/genlayerlabs/genswarms-packages/cli/internal/dirhash"
 )
@@ -47,7 +49,7 @@ type Resolved struct {
 type Options struct{ LocalSourceRoot string }
 
 var refRe = regexp.MustCompile(`^swarmidx:([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9._-]*)@([0-9A-Za-z][0-9A-Za-z.+-]*)$`)
-var ghRe = regexp.MustCompile(`^github://([^/]+)/([^@]+)@(.+)$`)
+var ghRe = regexp.MustCompile(`^github://([A-Za-z0-9][A-Za-z0-9-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)@([A-Za-z0-9][A-Za-z0-9._/-]*)$`)
 
 // Vendor fetches, verifies and lands one ref. Returns the lock entry.
 // resolve is injected (the notary client); fetches go through git or the
@@ -215,15 +217,20 @@ func checkout(source string, opts Options) (root *os.Root, cleanup func(), err e
 	}
 	if m := ghRe.FindStringSubmatch(source); m != nil {
 		owner, repo, tag := m[1], m[2], m[3]
+		if strings.Contains(tag, "..") || strings.Contains(tag, "//") || strings.HasSuffix(tag, "/") || strings.HasSuffix(tag, ".") || strings.HasSuffix(tag, ".lock") {
+			return nil, nil, fmt.Errorf("invalid Git source ref")
+		}
 		tmp, err := os.MkdirTemp("", "gsp-vendor-*")
 		if err != nil {
 			return nil, nil, err
 		}
 		url := fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
-		cmd := exec.Command("git", "clone", "--depth", "1", "--branch", tag, url, tmp)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		cmd := gitCommand(ctx, tmp, url, tag)
+		if err := cmd.Run(); err != nil {
 			os.RemoveAll(tmp)
-			return nil, nil, fmt.Errorf("git clone %s@%s: %s", repo, tag, firstLine(out))
+			return nil, nil, fmt.Errorf("Git source fetch failed")
 		}
 		root, err := os.OpenRoot(tmp)
 		if err != nil {
@@ -233,6 +240,20 @@ func checkout(source string, opts Options) (root *os.Root, cleanup func(), err e
 		return root, func() { root.Close(); os.RemoveAll(tmp) }, nil
 	}
 	return nil, nil, fmt.Errorf("unsupported source scheme: %q", source)
+}
+
+func gitCommand(ctx context.Context, tmp, url, tag string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "git", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
+		"-c", "http.followRedirects=false", "-c", "credential.helper=", "-c", "core.hooksPath="+os.DevNull,
+		"-c", "init.templateDir=", "clone", "--depth", "1", "--branch", tag, "--", url, tmp)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + tmp, "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_TERMINAL_PROMPT=0", "GIT_ALLOW_PROTOCOL=https"}
+	for _, key := range []string{"SSL_CERT_FILE", "SSL_CERT_DIR", "SYSTEMROOT"} {
+		if value := os.Getenv(key); value != "" {
+			cmd.Env = append(cmd.Env, key+"="+value)
+		}
+	}
+	return cmd
 }
 
 func packageRoot(base *os.Root, rel string) (*os.Root, error) {
@@ -353,6 +374,10 @@ func firstLine(out []byte) string {
 // be notarized before its dependent), so the seen-set is enough; the depth cap
 // is a corrupted-registry backstop, not a design limit.
 func VendorAll(vendorRoot string, refs []string, resolve func(string) (Resolved, error), opts Options) ([]LockEntry, error) {
+	return installBatch(vendorRoot, refs, resolve, opts)
+}
+
+func vendorGraph(refs []string, resolve func(string) (Resolved, error), land func(string, Resolved) (LockEntry, error)) ([]LockEntry, error) {
 	const maxDepth = 32
 
 	seen := map[string]bool{}
@@ -374,7 +399,7 @@ func VendorAll(vendorRoot string, refs []string, resolve func(string) (Resolved,
 			if err != nil {
 				return nil, fmt.Errorf("resolve %s: %w", ref, err)
 			}
-			entry, err := vendorResolved(vendorRoot, ref, res, opts)
+			entry, err := land(ref, res)
 			if err != nil {
 				return nil, err
 			}
