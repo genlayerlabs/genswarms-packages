@@ -85,8 +85,12 @@ The package IR (`swarm.state` / `swarm.overlay`) is the contract with
 [genswarms](https://github.com/genlayerlabs/genswarms), the runtime that actuates
 overlays on a live swarm. `gsp` authors and validates that IR offline and produces
 overlays genswarms consumes; it never touches a running swarm itself.
-`conformance/run.sh` folds the same inputs through both `gsp` (Go) and genswarms
-(Elixir) and asserts they agree, so the two implementations can't silently drift.
+`conformance/run.sh` folds fixtures through both `gsp` (Go) and genswarms
+(Elixir) and compares every parsed state field, including backend options,
+images, TUI clients, model policies, object configuration and swarm options.
+It checks semantic equality, not JSON byte identity; omitted defaults and
+whitespace may differ. This is an offline data-contract check, not proof of
+live execution or database restart behavior.
 
 See [`gsp-design-doc.md`](gsp-design-doc.md) for the full design.
 

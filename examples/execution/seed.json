@@ -1,0 +1,31 @@
+{
+  "v": 1,
+  "kind": "swarm.state",
+  "name": "execution-conformance",
+  "phase": "desired",
+  "agents": [
+    {
+      "name": "terminal",
+      "body": {"ref": "swarmidx:example/coder@1.0.0", "kind": "data", "digest": "sha256:aaaa"},
+      "model": {"ref": "openrouter:example/model", "attested": true},
+      "backend": {"ref": "tmux", "client": "codex", "opts": {"approval_policy": "never", "sandbox": "workspace-write"}},
+      "config": {"label": "offline fixture", "nested": {"enabled": false}},
+      "overrides": {"max_turns": 3}
+    },
+    {
+      "name": "container",
+      "body": {"ref": "swarmidx:example/coder@1.0.0", "kind": "data", "digest": "sha256:aaaa"},
+      "model": {"policy": {"ref": "swarmidx:example/policy@1.0.0", "kind": "data", "digest": "sha256:bbbb"}},
+      "backend": {"ref": "apple_container", "image": "agent:code", "opts": {"cpus": 2}}
+    },
+    {
+      "name": "isolated",
+      "body": {"ref": "swarmidx:example/coder@1.0.0", "kind": "data", "digest": "sha256:aaaa"},
+      "model": {"ref": "openrouter:example/model", "attested": false},
+      "backend": {"ref": "bwrap", "opts": {"network": "isolated", "memory_mb": 256}}
+    }
+  ],
+  "objects": [{"name": "board", "handler": {"ref": "swarmidx:example/board@1.0.0", "kind": "code", "digest": "sha256:cccc"}, "config": {"capacity": 8, "labels": ["one", "two"]}}],
+  "topology": [["terminal", "board"], ["board", "container"], ["isolated", "board"]],
+  "options": {"timeout_ms": 10000, "nested": {"enabled": true}}
+}

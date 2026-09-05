@@ -1,24 +1,24 @@
-# Fold a seed + overlays with genswarms' REAL Elixir IR and print a summary, for
-# cross-impl conformance against the gsp CLI (Go). Run from a genswarms checkout:
-#
-#   mix run conformance/genswarms_fold.exs <seed.json> <overlay.json> ...
-#
-# (see conformance/run.sh, which drives both sides and diffs them.)
-[seed | overlays] = System.argv()
+# Compare every parsed IR field, not a hand-picked summary. This checks semantic
+# equality; JSON whitespace and omitted default fields are not byte equality.
+[materialized, seed | overlays] = System.argv()
 
-{:ok, state0} = seed |> File.read!() |> Jason.decode!() |> Genswarms.IR.State.parse()
+parse_state = fn path ->
+  {:ok, state} = path |> File.read!() |> Jason.decode!() |> Genswarms.IR.State.parse()
+  state
+end
 
-state =
-  Enum.reduce(overlays, state0, fn path, s ->
-    {:ok, ov} = path |> File.read!() |> Jason.decode!() |> Genswarms.IR.Overlay.parse()
-    {:ok, s2} = Genswarms.IR.Fold.fold(s, ov)
-    s2
+expected =
+  Enum.reduce(overlays, parse_state.(seed), fn path, state ->
+    {:ok, overlay} = path |> File.read!() |> Jason.decode!() |> Genswarms.IR.Overlay.parse()
+    {:ok, next} = Genswarms.IR.Fold.fold(state, overlay)
+    next
   end)
 
-names = state.agents |> Enum.map(& &1.name) |> Enum.join(",")
-r = Enum.find(state.agents, &(&1.name == "researcher"))
-topo = state.topology |> Enum.map(fn {f, t} -> f <> ">" <> t end) |> Enum.join(" ")
+actual = parse_state.(materialized)
 
-IO.puts("agents=" <> names)
-IO.puts("researcher_body_digest=" <> (r && r.body.digest || ""))
-IO.puts("topology=" <> topo)
+if actual !== expected do
+  # Inputs may contain private configuration; do not dump their values.
+  raise "CONFORMANCE FAILED: complete parsed Go and Elixir states differ for #{Path.basename(seed)}"
+end
+
+IO.puts("CONFORMANCE OK: complete parsed state for #{Path.basename(seed)}")

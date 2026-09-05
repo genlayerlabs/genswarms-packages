@@ -15,18 +15,22 @@ import (
 // in two forms of the same shape: authored (may omit digest) and resolved
 // (content-addressable refs carry an inline digest).
 type Ref struct {
-	Ref      string // the ref string, e.g. "swarmidx:jmlago/coder@0.4.0"
-	Scheme   string // derived: the part before the first ':'
-	Digest   string // "" if absent
-	Kind     string // "data" | "code" | "" (omitted for non-package refs)
-	Attested bool
-	Host     string
+	Ref         string // the ref string, e.g. "swarmidx:jmlago/coder@0.4.0"
+	Scheme      string // derived: the part before the first ':'
+	Digest      string // "" if absent
+	Kind        string // "data" | "code" | "" (omitted for non-package refs)
+	Attested    bool
+	Host        string
+	Image       string
+	Client      any // only tmux constrains this to a supported client string
+	Opts        map[string]any
+	optsPresent bool // preserve explicit null (distinct from the default {})
 }
 
 var (
 	contentAddressableSchemes = map[string]bool{"swarmidx": true, "oci": true}
 	hostRequiredSchemes       = map[string]bool{"ssh": true}
-	bareSchemes               = map[string]bool{"ssh": true, "host": true, "local": true, "bwrap": true, "mock": true}
+	bareSchemes               = map[string]bool{"ssh": true, "host": true, "local": true, "bwrap": true, "mock": true, "apple_container": true, "tmux": true}
 	digestRe                  = regexp.MustCompile(`^[a-z0-9]+:[0-9a-f]+$`)
 )
 
@@ -70,13 +74,47 @@ func ParseRef(m map[string]any) (Ref, error) {
 	if err := refHost(scheme, m); err != nil {
 		return Ref{}, err
 	}
+	image, opts, err := executionMetadata(scheme, m)
+	if err != nil {
+		return Ref{}, err
+	}
 	attested, err := refAttested(m)
 	if err != nil {
 		return Ref{}, err
 	}
 	digest, _ := m["digest"].(string)
 	host, _ := m["host"].(string)
-	return Ref{Ref: refStr, Scheme: scheme, Digest: digest, Kind: kind, Attested: attested, Host: host}, nil
+	_, optsPresent := m["opts"]
+	return Ref{Ref: refStr, Scheme: scheme, Digest: digest, Kind: kind, Attested: attested, Host: host,
+		Image: image, Client: m["client"], Opts: opts, optsPresent: optsPresent}, nil
+}
+
+// Mirror Genswarms.IR.Ref's execution metadata validation. In particular,
+// materializing a backend must not silently discard its isolation options.
+func executionMetadata(scheme string, m map[string]any) (string, map[string]any, error) {
+	image := ""
+	if value := m["image"]; value != nil {
+		var ok bool
+		image, ok = value.(string)
+		if !ok || image == "" {
+			return "", nil, fmt.Errorf("invalid image")
+		}
+	}
+	if scheme == "tmux" {
+		client, _ := m["client"].(string)
+		if client != "codex" && client != "claude" && client != "opencode" {
+			return "", nil, fmt.Errorf("invalid tmux client")
+		}
+	}
+	var opts map[string]any
+	if value := m["opts"]; value != nil {
+		var ok bool
+		opts, ok = value.(map[string]any)
+		if !ok {
+			return "", nil, fmt.Errorf("invalid opts: expected object")
+		}
+	}
+	return image, opts, nil
 }
 
 func refKind(m map[string]any, scheme string) (string, error) {
