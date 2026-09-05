@@ -34,10 +34,11 @@ authoring (emit a one-event swarm.overlay to stdout or -o file):
   gsp bump <target> --field F --from DIGEST --to DIGEST [--migration P]    bump_package
 
 notary client (talks to swarmidx; --endpoint / $SWARMIDX_ENDPOINT, --token / $SWARMIDX_TOKEN):
+  resolve, vendor, materialize --resolve require --public-key / $SWARMIDX_PUBLIC_KEY
   gsp publish <swarmidx.json> --version V [--source S]   dirhash each package dir and publish it
   gsp resolve <ref>                                      resolve swarmidx:scope/name@version → digest
   gsp log [--since N] [--public-key HEX]                 verify all pages; --since filters display only
-  gsp vendor <ref | ir.json>… [--dir D]                  fetch each ref, RE-VERIFY its dirhash locally,
+  gsp vendor [--dir D] <ref | ir.json>…                  fetch each ref, RE-VERIFY its dirhash locally,
                                                          land it under D (default vendor/swarmidx) + lock
 `
 
@@ -99,6 +100,7 @@ func cmdMaterialize(args []string) error {
 	fs := flag.NewFlagSet("materialize", flag.ContinueOnError)
 	doResolve := fs.Bool("resolve", false, "resolve swarmidx: refs against the notary (fills digests)")
 	endpoint := endpointFlag(fs)
+	trustedKey := publicKeyFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -129,18 +131,11 @@ func cmdMaterialize(args []string) error {
 		}
 	}
 	if *doResolve {
-		c := client.New(*endpoint, "")
-		if err := state.ResolveSwarmidx(func(ref string) (string, error) {
-			out, err := c.Resolve(ref)
-			if err != nil {
-				return "", err
-			}
-			d, _ := out["digest"].(string)
-			if d == "" {
-				return "", fmt.Errorf("no digest for %s", ref)
-			}
-			return d, nil
-		}); err != nil {
+		resolver, err := verifiedResolver(*endpoint, *trustedKey)
+		if err != nil {
+			return err
+		}
+		if err := resolveState(&state, resolver); err != nil {
 			return err
 		}
 	}
@@ -211,6 +206,65 @@ func endpointFlag(fs *flag.FlagSet) *string {
 	return fs.String("endpoint", env("SWARMIDX_ENDPOINT", "http://localhost:8000"), "swarmidx endpoint")
 }
 
+func publicKeyFlag(fs *flag.FlagSet) *string {
+	return fs.String("public-key", os.Getenv("SWARMIDX_PUBLIC_KEY"), "independently trusted Ed25519 public key (64 hex characters; or $SWARMIDX_PUBLIC_KEY)")
+}
+
+func parsePublicKey(value string) (ed25519.PublicKey, error) {
+	if value == "" {
+		return nil, fmt.Errorf("set --public-key or SWARMIDX_PUBLIC_KEY to an independently trusted notary key")
+	}
+	raw, err := hex.DecodeString(value)
+	if err != nil || len(raw) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("public key must be 64 hex characters")
+	}
+	return ed25519.PublicKey(raw), nil
+}
+
+func verifiedResolver(endpoint, key string) (*client.Resolver, error) {
+	pub, err := parsePublicKey(key)
+	if err != nil {
+		return nil, err
+	}
+	return client.New(endpoint, "").VerifiedResolver(pub)
+}
+
+// Authenticate every package slot, including existing pins. Backend/service
+// refs belong to other resolvers and are not modified here.
+func resolveState(state *ir.State, resolver *client.Resolver) error {
+	resolve := func(ref *ir.Ref, kind string) error {
+		if ref.Scheme != "swarmidx" {
+			return nil
+		}
+		rel, err := resolver.Resolve(ref.Ref)
+		if err != nil {
+			return err
+		}
+		if rel.Kind != kind {
+			return fmt.Errorf("package %s has kind %s, expected %s", ref.Ref, rel.Kind, kind)
+		}
+		if ref.Digest != "" && ref.Digest != rel.Digest {
+			return fmt.Errorf("pinned digest differs from signed release: %s", ref.Ref)
+		}
+		ref.Digest = rel.Digest
+		return nil
+	}
+	for i := range state.Agents {
+		if err := resolve(&state.Agents[i].Body, "body"); err != nil {
+			return err
+		}
+		if err := resolve(&state.Agents[i].Model.Ref, "policy"); err != nil {
+			return err
+		}
+	}
+	for i := range state.Objects {
+		if err := resolve(&state.Objects[i].Handler, "handler"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -267,7 +321,8 @@ func cmdPublish(args []string) error {
 func cmdResolve(args []string) error {
 	fs := flag.NewFlagSet("resolve", flag.ContinueOnError)
 	endpoint := endpointFlag(fs)
-	asJSON := fs.Bool("json", false, "print the raw JSON response")
+	trustedKey := publicKeyFlag(fs)
+	asJSON := fs.Bool("json", false, "print authenticated release metadata as JSON")
 	if len(args) < 1 {
 		return fmt.Errorf("usage: gsp resolve <ref> [--json]")
 	}
@@ -275,7 +330,11 @@ func cmdResolve(args []string) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	out, err := client.New(*endpoint, "").Resolve(ref)
+	resolver, err := verifiedResolver(*endpoint, *trustedKey)
+	if err != nil {
+		return err
+	}
+	out, err := resolver.Resolve(ref)
 	if err != nil {
 		return err
 	}
@@ -285,7 +344,7 @@ func cmdResolve(args []string) error {
 		return nil
 	}
 	fmt.Printf("%v\n  digest:  %v\n  source:  %v\n  kind:    %v\n  log #:   %v\n",
-		out["ref"], out["digest"], out["source"], out["kind"], out["log_seq"])
+		out.Ref, out.Digest, out.Source, out.Kind, out.LogSeq)
 	return nil
 }
 
@@ -293,7 +352,7 @@ func cmdLog(args []string) error {
 	fs := flag.NewFlagSet("log", flag.ContinueOnError)
 	endpoint := endpointFlag(fs)
 	since := fs.Int("since", 0, "only entries with seq > since")
-	trustedKey := fs.String("public-key", "", "trusted Ed25519 public key (64 hex characters, obtained independently)")
+	trustedKey := publicKeyFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -304,11 +363,11 @@ func cmdLog(args []string) error {
 	var pub ed25519.PublicKey
 	keySource := "server-advertised key (not independently authenticated)"
 	if *trustedKey != "" {
-		raw, err := hex.DecodeString(*trustedKey)
-		if err != nil || len(raw) != ed25519.PublicKeySize {
-			return fmt.Errorf("public key must be 64 hex characters")
+		var err error
+		pub, err = parsePublicKey(*trustedKey)
+		if err != nil {
+			return err
 		}
-		pub = ed25519.PublicKey(raw)
 		keySource = "supplied public key"
 	} else {
 		var err error
@@ -457,20 +516,22 @@ func cmdBump(args []string) error {
 // gsp vendor <ref | materialized-ir>… [--dir vendor/swarmidx] — design §14.1:
 // resolve each swarmidx: ref, fetch its source, RE-HASH the package dir locally,
 // require it to equal the notarized digest, land it under the vendor root and
-// write vendor-lock.json. Trust the math, not the server.
+// write vendor-lock.json. Resolve only against an independently keyed log.
 func cmdVendor(args []string) error {
 	fs := flag.NewFlagSet("vendor", flag.ContinueOnError)
 	dir := fs.String("dir", "vendor/swarmidx", "vendor root directory")
 	endpoint := endpointFlag(fs)
+	trustedKey := publicKeyFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	items := fs.Args()
 	if len(items) == 0 {
-		return fmt.Errorf("usage: gsp vendor <swarmidx:ref | materialized-ir.json>… [--dir DIR]")
+		return fmt.Errorf("usage: gsp vendor [--dir DIR] [--public-key HEX] <swarmidx:ref | materialized-ir.json>…")
 	}
 
 	var refs []string
+	var states []ir.State
 	seen := map[string]bool{}
 	for _, it := range items {
 		if strings.HasPrefix(it, "swarmidx:") {
@@ -488,6 +549,7 @@ func cmdVendor(args []string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", it, err)
 		}
+		states = append(states, state)
 		for _, r := range state.SwarmidxRefs() {
 			if !seen[r] {
 				seen[r] = true
@@ -499,24 +561,21 @@ func cmdVendor(args []string) error {
 		return fmt.Errorf("no swarmidx: refs found in %v", items)
 	}
 
-	c := client.New(*endpoint, "")
+	resolver, err := verifiedResolver(*endpoint, *trustedKey)
+	if err != nil {
+		return err
+	}
+	for i := range states {
+		if err := resolveState(&states[i], resolver); err != nil {
+			return err
+		}
+	}
 	resolve := func(ref string) (vendorer.Resolved, error) {
-		out, err := c.Resolve(ref)
+		out, err := resolver.Resolve(ref)
 		if err != nil {
 			return vendorer.Resolved{}, err
 		}
-		digest, _ := out["digest"].(string)
-		source, _ := out["source"].(string)
-		pkgDir, _ := out["dir"].(string)
-		var deps []string
-		if raw, ok := out["deps"].([]any); ok {
-			for _, d := range raw {
-				if s, ok := d.(string); ok {
-					deps = append(deps, s)
-				}
-			}
-		}
-		return vendorer.Resolved{Digest: digest, Source: source, Dir: pkgDir, Deps: deps}, nil
+		return vendorer.Resolved{Digest: out.Digest, Source: out.Source, Dir: out.Dir, Deps: out.Deps}, nil
 	}
 
 	entries, err := vendorer.VendorAll(*dir, refs, resolve)

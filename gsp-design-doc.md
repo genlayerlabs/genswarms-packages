@@ -327,6 +327,13 @@ The digest over a `dir` must be recomputable by any client. Do **not** hash the 
 
 Given the `"attested": true` flag and the attestation/sovereignty orientation, the transparency log (append-only Merkle + signature, `sumdb` style) **is not optional**: it prevents a digest from being silently changed. It composes with `attested` and with `bump_package` (§4.5) into an end-to-end verification story for the IR, including its live evolution.
 
+The current implementation is a signed **linear hash chain**, not a Merkle tree.
+CLI resolution requires an independently trusted Ed25519 public key and derives
+active releases directly from one verified log snapshot, applying signed package
+withdrawals. It never treats the mutable `/v1/resolve` response as authenticated.
+Signatures authenticate the returned history but do not prove freshness or the
+absence of split views; independent checkpoints/witnesses remain future work.
+
 ---
 
 ## 13. Open questions
@@ -350,7 +357,10 @@ Closes open question #7 and specifies the last link of the circuit: a resolved
 
 `gsp vendor <materialized-ir | ref…> [--dir vendor/swarmidx]`, offline plane:
 
-1. For each `swarmidx:` ref, `resolve` against the notary → `{digest, source, dir}`.
+1. With `--public-key` / `SWARMIDX_PUBLIC_KEY`, verify the returned log from
+   genesis and derive each active `swarmidx:` release's signed
+   `{digest, source, dir, kind, deps}`. Check any IR pins and slot kinds before
+   vendoring; mismatches are errors, not opportunities to replace the pins.
 2. Shallow-clone `source` at its tag, **recompute the dirhash of `dir` locally**,
    and require it to equal the notarized digest — trust the math, not the server
    (the same posture as `gsp log`). Mismatch ⇒ hard fail, nothing written.

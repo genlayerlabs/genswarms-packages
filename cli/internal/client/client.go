@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -55,10 +54,6 @@ type LogEntry struct {
 	PrevHash  string         `json:"prev_hash"`
 	EntryHash string         `json:"entry_hash"`
 	Signature string         `json:"signature"`
-}
-
-func (c *Client) Resolve(ref string) (map[string]any, error) {
-	return c.getJSON(c.Endpoint + "/v1/resolve?ref=" + url.QueryEscape(ref))
 }
 
 func (c *Client) Publish(r Release) (map[string]any, error) {

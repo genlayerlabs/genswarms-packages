@@ -186,7 +186,7 @@ func TestHTTPResponseBoundsAndRedaction(t *testing.T) {
 				io.WriteString(w, tc.body)
 			}))
 			defer server.Close()
-			_, err := New(server.URL, "").Resolve("swarmidx:fixture/body@1.0.0")
+			_, err := New(server.URL, "").getJSON(server.URL)
 			if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "private-response-fixture") {
 				t.Fatalf("unexpected response error: %v", err)
 			}
@@ -196,7 +196,7 @@ func TestHTTPResponseBoundsAndRedaction(t *testing.T) {
 
 func TestInvalidNotaryURLReturnsError(t *testing.T) {
 	c := New(":invalid", "")
-	if _, err := c.Resolve("fixture"); err == nil {
+	if _, err := c.getJSON(c.Endpoint); err == nil {
 		t.Fatal("invalid resolve URL accepted")
 	}
 	if _, err := c.Publish(Release{}); err == nil {

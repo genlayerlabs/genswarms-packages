@@ -19,9 +19,15 @@ display, not verification. Malformed responses and non-progressing pages fail
 closed, with a limit of 100,000 entries / 64 MiB of encoded log data.
 Even with a pinned key, a signed prefix does not prove freshness or rule out
 split views; that needs an independently trusted checkpoint or witness.
-`resolve`, `materialize --resolve` and `vendor` do not currently authenticate
-their resolution responses against this log. Local dirhash verification checks
-bytes against the resolved digest, not the authenticity of that digest.
+`resolve`, `materialize --resolve` and `vendor` **require** `--public-key HEX` or
+`SWARMIDX_PUBLIC_KEY` (an independently trusted key; not a secret). They derive
+release metadata directly from one verified log snapshot, including signed
+withdrawals and exact-pin dependencies. They do not consult `/v1/resolve`.
+Unsigned card fields such as `module` are excluded from resolved JSON; handler
+entry points must come from `swarm-object.json` inside verified package bytes.
+Materialization and vendoring of IR check existing digest pins and package slot
+roles against the signed releases, rather than replacing mismatching pins.
+Offline `materialize` without `--resolve` remains network/key-free.
 
 ## Install
 
@@ -73,6 +79,8 @@ under Tokens). The hosted notary is `https://swarmidx.ygr.ai`:
 ```sh
 export SWARMIDX_ENDPOINT=https://swarmidx.ygr.ai
 export SWARMIDX_TOKEN=gsp_live_…
+# Set SWARMIDX_PUBLIC_KEY to the notary's 64-hex public key, obtained
+# independently from its operator. Do not bootstrap trust from /v1/publickey.
 
 gsp publish swarmidx.json --version 0.1.0 --source github://owner/repo@main
 gsp resolve swarmidx:you/web-researcher@0.1.0
@@ -89,6 +97,23 @@ things follow:
 
 Versions are immutable — republishing the same `scope/name@version` is rejected;
 bump the version instead.
+
+### Local cross-repository verification
+
+With a built `gsp` and Python dependencies from `swarmidx/backend/requirements.txt`:
+
+```sh
+python conformance/notary.py --swarmidx /path/to/swarmidx --gsp /absolute/path/to/gsp
+```
+
+This runs the actual CLI against Django over loopback: authenticated publishing,
+Python signing, verified resolution, IR materialization and local vendoring.
+It checks dependency hashes, signed withdrawals, altered index metadata,
+wrong keys, tampered logs and mismatching IR pins/kinds. It uses public fixture
+keys and a fresh in-memory test DB, never an existing DB or hosted notary.
+It does not test PostgreSQL append concurrency, remote git transport or BEAM
+loading/restart. Vendoring filesystem containment and failure atomicity remain
+separate hardening work; successful signature checks do not imply those guarantees.
 
 ## How it fits GenSwarms
 

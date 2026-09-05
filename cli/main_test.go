@@ -74,3 +74,17 @@ func TestLogRejectsInvalidArgumentsBeforeNetwork(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveRequiresIndependentTrustBeforeNetwork(t *testing.T) {
+	t.Setenv("SWARMIDX_PUBLIC_KEY", "")
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		io.WriteString(w, `{"ref":"swarmidx:fixture/body@1","digest":"sha256:tampered"}`)
+	}))
+	defer server.Close()
+	err := cmdResolve([]string{"swarmidx:fixture/body@1", "--endpoint", server.URL})
+	if err == nil || calls != 0 {
+		t.Fatalf("unauthenticated resolution accepted or requested: err=%v calls=%d", err, calls)
+	}
+}
