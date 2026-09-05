@@ -40,6 +40,7 @@ notary client (talks to swarmidx; --endpoint / $SWARMIDX_ENDPOINT, --token / $SW
   gsp log [--since N] [--public-key HEX]                 verify all pages; --since filters display only
   gsp vendor [--dir D] <ref | ir.json>…                  fetch each ref, RE-VERIFY its dirhash locally,
                                                          land it under D (default vendor/swarmidx) + lock
+    --local-source-root DIR                            explicitly permit local: reads beneath DIR
 `
 
 func main() {
@@ -522,6 +523,7 @@ func cmdVendor(args []string) error {
 	dir := fs.String("dir", "vendor/swarmidx", "vendor root directory")
 	endpoint := endpointFlag(fs)
 	trustedKey := publicKeyFlag(fs)
+	localRoot := fs.String("local-source-root", "", "explicitly approved directory for local: source reads (default: disabled)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -578,7 +580,7 @@ func cmdVendor(args []string) error {
 		return vendorer.Resolved{Digest: out.Digest, Source: out.Source, Dir: out.Dir, Deps: out.Deps}, nil
 	}
 
-	entries, err := vendorer.VendorAll(*dir, refs, resolve)
+	entries, err := vendorer.VendorAll(*dir, refs, resolve, vendorer.Options{LocalSourceRoot: *localRoot})
 	if err != nil {
 		return err
 	}

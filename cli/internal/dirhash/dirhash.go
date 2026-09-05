@@ -53,6 +53,33 @@ func HashDir(dir string) (string, error) {
 	open := func(name string) (io.ReadCloser, error) {
 		return os.Open(filepath.Join(dir, filepath.FromSlash(name)))
 	}
+	return hashFiles(files, open)
+}
+
+// HashFS uses the same digest bytes over a filesystem capability (e.g.
+// os.Root.FS). Callers can confine reads without reopening absolute host paths.
+func HashFS(tree fs.FS) (string, error) {
+	var files []string
+	err := fs.WalkDir(tree, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		files = append(files, name)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hashFiles(files, func(name string) (io.ReadCloser, error) { return tree.Open(name) })
+}
+
+func hashFiles(files []string, open func(string) (io.ReadCloser, error)) (string, error) {
 	h1, err := dirhash.Hash1(files, open)
 	if err != nil {
 		return "", err

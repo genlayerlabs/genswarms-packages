@@ -101,3 +101,29 @@ func TestHashDirSkipsGitDir(t *testing.T) {
 		t.Fatalf("digest moved when a nested .git appeared: %s vs %s", clean, nested)
 	}
 }
+
+func TestHashFSMatchesExistingDigestContract(t *testing.T) {
+	dir := writeTree(t)
+	if err := os.WriteFile(filepath.Join(dir, "café🚀"), []byte("unicode\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "ignored"), []byte("ignored\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want, err := HashDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	got, err := HashFS(root.FS())
+	if err != nil || got != want {
+		t.Fatalf("filesystem-backed digest differs: %s != %s (%v)", got, want, err)
+	}
+}

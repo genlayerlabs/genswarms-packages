@@ -76,12 +76,14 @@ def main():
             self.gsp("publish", str(self.manifest), "--version", "1",
                      "--source", "local:" + str(self.root), publish=True)
 
-        def gsp(self, *args, publish=False, success=True, key=None):
+        def gsp(self, *args, publish=False, success=True, key=None, local=True):
             env = {"PATH": os.environ.get("PATH", ""), "HOME": str(self.root),
                    "LANG": "C.UTF-8", "SWARMIDX_ENDPOINT": self.live_server_url,
                    "SWARMIDX_PUBLIC_KEY": transparency.public_key_hex() if key is None else key}
             if publish:
                 env["SWARMIDX_TOKEN"] = self.token
+            if args[0] == "vendor" and local:
+                args = (args[0], "--local-source-root", str(self.root), *args[1:])
             result = subprocess.run([str(binary), *args], cwd=self.root, env=env,
                                     capture_output=True, text=True, timeout=30)
             if success:
@@ -165,6 +167,22 @@ def main():
             services.delete_package(self.user, "fixture", "body", "fixture/body")
             self.gsp("resolve", "swarmidx:fixture/body@1", success=False)
             self.gsp("resolve", "swarmidx:fixture/policy@1")
+
+        def test_local_sources_need_separate_host_path_authority(self):
+            result = self.gsp("vendor", "--dir", str(self.root / "vendor"),
+                              "swarmidx:fixture/body@1", local=False, success=False)
+            self.assertIn("local-source-root", result.stderr)
+            self.assertFalse((self.root / "vendor" / "fixture__body@1").exists())
+
+        def test_modified_existing_package_is_preserved(self):
+            vendor = self.root / "vendor"
+            self.gsp("vendor", "--dir", str(vendor), "swarmidx:fixture/body@1")
+            modified = vendor / "fixture__body@1" / "fixture.txt"
+            modified.write_text("operator edits\n", encoding="utf-8")
+            lock = (vendor / "vendor-lock.json").read_bytes()
+            self.gsp("vendor", "--dir", str(vendor), "swarmidx:fixture/body@1", success=False)
+            self.assertEqual(modified.read_text(), "operator edits\n")
+            self.assertEqual((vendor / "vendor-lock.json").read_bytes(), lock)
 
     runner = DiscoverRunner(verbosity=2, interactive=False)
     runner.setup_test_environment()

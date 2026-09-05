@@ -361,15 +361,21 @@ Closes open question #7 and specifies the last link of the circuit: a resolved
    genesis and derive each active `swarmidx:` release's signed
    `{digest, source, dir, kind, deps}`. Check any IR pins and slot kinds before
    vendoring; mismatches are errors, not opportunities to replace the pins.
-2. Shallow-clone `source` at its tag, **recompute the dirhash of `dir` locally**,
-   and require it to equal the notarized digest — trust the math, not the server
-   (the same posture as `gsp log`). Mismatch ⇒ hard fail, nothing written.
-3. Copy the package dir to `vendor/swarmidx/<scope>__<name>@<version>/` and record
+2. Shallow-clone `source` at its tag (or explicitly authorize a local source
+   subtree with `--local-source-root`). Copy only regular files through confined
+   directory handles into private staging, then **recompute the dirhash there**
+   and require it to equal the notarized digest. Traversal, symlinks, special
+   files and digest mismatches fail without publishing that package.
+3. Rename the verified package to `vendor/swarmidx/<scope>__<name>@<version>/` and record
    `{ref, digest, path}` in `vendor-lock.json` at the vendor root.
 
 The vendor dir is disposable: regenerating it from the lock re-verifies every
 digest. A later `gsp vendor` run re-verifies existing entries by re-hashing the
 on-disk dir (cheap) instead of re-cloning.
+Modified existing entries fail and are preserved; automatic delete/rebuild has
+been removed. Lock writes use a synced temporary file followed by rename, not
+in-place truncation. This is not yet an all-or-nothing transaction across a
+dependency batch or a power-loss recovery protocol.
 
 ### 14.2 The entry convention: `swarm-object.json` INSIDE the hashed dir
 

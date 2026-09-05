@@ -29,6 +29,27 @@ Materialization and vendoring of IR check existing digest pins and package slot
 roles against the signed releases, rather than replacing mismatching pins.
 Offline `materialize` without `--resolve` remains network/key-free.
 
+Vendoring rejects traversal refs, symbolic-link package paths, symlink/special
+file contents and linked destinations. File access is confined to opened
+directory handles. New packages are copied into private staging, hashed there,
+then renamed into place; existing packages are re-verified but **never repaired
+or overwritten automatically**. If you edited a vendored copy, keep it and choose
+a fresh vendor directory to fetch a clean copy. `vendor-lock.json` is written
+through a temporary file and renamed, never truncated through a link.
+
+`local:` sources are disabled by default even when signed. For a trusted local
+fixture, grant access explicitly with a narrow directory:
+
+```sh
+gsp vendor --local-source-root /path/to/approved/sources --dir vendor/swarmidx swarmidx:scope/name@1
+```
+
+This permits local source reads only beneath that directory; it is independent
+of the notary key. GitHub sources do not require this flag. These are per-package
+staging guarantees, not a transaction over an entire dependency batch: earlier
+successful packages can remain if a later package fails, and concurrent-writer
+coordination and power-loss durability are not yet guaranteed.
+
 ## Install
 
 Grab a prebuilt binary for your platform from
@@ -111,9 +132,10 @@ Python signing, verified resolution, IR materialization and local vendoring.
 It checks dependency hashes, signed withdrawals, altered index metadata,
 wrong keys, tampered logs and mismatching IR pins/kinds. It uses public fixture
 keys and a fresh in-memory test DB, never an existing DB or hosted notary.
-It does not test PostgreSQL append concurrency, remote git transport or BEAM
-loading/restart. Vendoring filesystem containment and failure atomicity remain
-separate hardening work; successful signature checks do not imply those guarantees.
+It also checks explicit local-source authority and preservation of an edited
+vendored package and its lock. It does not test PostgreSQL append concurrency,
+remote git transport or BEAM loading/restart. Multi-package transactionality,
+concurrent-writer coordination and crash durability remain separate work.
 
 ## How it fits GenSwarms
 
